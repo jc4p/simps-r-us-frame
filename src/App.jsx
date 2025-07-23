@@ -607,7 +607,6 @@ function App() {
             {userLevel.user?.profile?.followerCount && (
               <div className="profile-social-stats">
                 <span>{formatBigNumber(userLevel.user.profile.followerCount)} followers</span>
-                {userLevel.user.profile.powerBadge && <span className="power-badge">⚡ Power Badge</span>}
               </div>
             )}
           </div>
@@ -663,13 +662,13 @@ function App() {
           {/* Top Creators Section */}
           {userLevel.topCreators && userLevel.topCreators.length > 0 && (
             <div className="profile-section">
-              <h3>USERS YOU LOVE SIMPING FOR</h3>
+              <h3>LOVES SIMPING FOR</h3>
               <div className="top-creators-list">
                 {userLevel.topCreators.map((creator, idx) => {
                   const spendingPercentage = ((creator.totalSpentCents / userLevel.stats?.totalVolumeCents) * 100).toFixed(1)
                   
                   return (
-                    <div key={creator.creatorFid} className="creator-stat-item">
+                    <div key={creator.creatorFid} className="creator-stat-item clickable" onClick={() => viewProfile(creator.creatorFid)}>
                       <span className="creator-rank">#{idx + 1}</span>
                       <img 
                         src={creator.profile?.pfpUrl || '/default-avatar.png'} 
@@ -694,51 +693,6 @@ function App() {
                     </div>
                   )
                 })}
-              </div>
-            </div>
-          )}
-
-          {/* Recent Bids Section */}
-          {userLevel.recentBids && userLevel.recentBids.length > 0 && (
-            <div className="profile-section">
-              <h3>YOUR RECENT SIMPING ACTIVITY</h3>
-              <div className="recent-bids-list">
-                {userLevel.recentBids.slice(0, 10).map((bid, idx) => (
-                  <div key={`${bid.castHash}-${idx}`} className="recent-bid-item">
-                    <div className="bid-header">
-                      <span className="bid-amount">{formatUSDC(bid.amountCents)}</span>
-                      <span className="bid-time">{new Date(bid.timestamp).toLocaleString('en-US', { 
-                        month: 'short', 
-                        day: 'numeric', 
-                        hour: 'numeric', 
-                        minute: '2-digit',
-                        hour12: true 
-                      })}</span>
-                    </div>
-                    
-                    <div className="bid-creator-info">
-                      <img 
-                        src={bid.creatorProfile?.pfpUrl || '/default-avatar.png'}
-                        alt={bid.creatorProfile?.username || 'Creator'}
-                        className="creator-avatar-tiny"
-                      />
-                      <span className="creator-name">@{bid.creatorProfile?.username || `fid:${bid.creatorFid}`}</span>
-                      <span className="auction-status-mini">{getAuctionStatus(bid.auctionState, bid.auctionEndTime).text}</span>
-                    </div>
-                    
-                    {bid.castData && (
-                      <div className="bid-cast-preview">
-                        <p className="cast-text-mini">{bid.castData.text}</p>
-                        <button 
-                          className="view-cast-btn-mini"
-                          onClick={() => viewCast(bid.castHash)}
-                        >
-                          VIEW →
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
               </div>
             </div>
           )}
@@ -776,7 +730,9 @@ function App() {
                           className="creator-avatar-tiny"
                         />
                         <span>@{cast.creatorProfile?.username || `fid:${cast.creatorFid}`}</span>
-                        <span className="auction-status-badge">{getAuctionStatus(cast.state, cast.endTime).text}</span>
+                        {getAuctionStatus(cast.state, cast.endTime).text !== 'BIDDING WAR!' && (
+                          <span className="auction-status-badge">{getAuctionStatus(cast.state, cast.endTime).text}</span>
+                        )}
                       </div>
                       
                       {cast.castData && (
@@ -800,6 +756,51 @@ function App() {
                     </div>
                   )
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* Recent Bids Section */}
+          {userLevel.recentBids && userLevel.recentBids.filter(bid => bid.castData).length > 0 && (
+            <div className="profile-section">
+              <h3>YOUR RECENT SIMPING ACTIVITY</h3>
+              <div className="recent-bids-list">
+                {userLevel.recentBids.filter(bid => bid.castData).slice(0, 10).map((bid, idx) => (
+                  <div key={`${bid.castHash}-${idx}`} className="recent-bid-item">
+                    <div className="bid-header">
+                      <span className="bid-amount">{formatUSDC(bid.amountCents)}</span>
+                      <span className="bid-time">{new Date(bid.timestamp).toLocaleString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric', 
+                        hour: 'numeric', 
+                        minute: '2-digit',
+                        hour12: true 
+                      })}</span>
+                    </div>
+                    
+                    <div className="bid-creator-info">
+                      <img 
+                        src={bid.creatorProfile?.pfpUrl || '/default-avatar.png'}
+                        alt={bid.creatorProfile?.username || 'Creator'}
+                        className="creator-avatar-tiny"
+                      />
+                      <span className="creator-name">@{bid.creatorProfile?.username || `fid:${bid.creatorFid}`}</span>
+                      <span className="auction-status-mini">{getAuctionStatus(bid.auctionState, bid.auctionEndTime).text}</span>
+                    </div>
+                    
+                    {bid.castData && (
+                      <div className="bid-cast-preview">
+                        <p className="cast-text-mini">{bid.castData.text}</p>
+                        <button 
+                          className="view-cast-btn-mini"
+                          onClick={() => viewCast(bid.castHash)}
+                        >
+                          VIEW →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -894,7 +895,6 @@ function App() {
                   {selectedUserProfile.user?.profile?.followerCount && (
                     <div className="profile-social-stats">
                       <span>{formatBigNumber(selectedUserProfile.user.profile.followerCount)} followers</span>
-                      {selectedUserProfile.user.profile.powerBadge && <span className="power-badge">⚡ Power Badge</span>}
                     </div>
                   )}
                 </div>
@@ -951,13 +951,13 @@ function App() {
 
                 {selectedUserProfile.topCreators && selectedUserProfile.topCreators.length > 0 && (
                   <div className="profile-section">
-                    <h3>USERS THEY LOVE SIMPING FOR</h3>
+                    <h3>LOVES SIMPING FOR</h3>
                     <div className="top-creators-list">
                       {selectedUserProfile.topCreators.map((creator, idx) => {
                         const spendingPercentage = ((creator.totalSpentCents / selectedUserProfile.stats?.totalVolumeCents) * 100).toFixed(1)
                         
                         return (
-                          <div key={creator.creatorFid} className="creator-stat-item">
+                          <div key={creator.creatorFid} className="creator-stat-item clickable" onClick={() => viewProfile(creator.creatorFid)}>
                             <span className="creator-rank">#{idx + 1}</span>
                             <img 
                               src={creator.profile?.pfpUrl || '/default-avatar.png'} 
@@ -1012,7 +1012,12 @@ function App() {
                                 className="creator-avatar-tiny"
                               />
                               <span>@{cast.creatorProfile?.username || `fid:${cast.creatorFid}`}</span>
-                              <span className="auction-status-badge">{getAuctionStatus(cast.state, cast.endTime).text}</span>
+                              {getAuctionStatus(cast.state, cast.endTime).text !== 'BIDDING WAR!' && (
+                                <span className="auction-status-badge">{getAuctionStatus(cast.state, cast.endTime).text}</span>
+                              )}
+                        {getAuctionStatus(cast.state, cast.endTime).text !== 'BIDDING WAR!' && (
+                          <span className="auction-status-badge">{getAuctionStatus(cast.state, cast.endTime).text}</span>
+                        )}
                             </div>
                             
                             {cast.castData && (
@@ -1051,11 +1056,11 @@ function App() {
                 )}
 
                 {/* Recent Bids Section */}
-                {selectedUserProfile.recentBids && selectedUserProfile.recentBids.length > 0 && (
+                {selectedUserProfile.recentBids && selectedUserProfile.recentBids.filter(bid => bid.castData).length > 0 && (
                   <div className="profile-section">
                     <h3>RECENT SIMPING ACTIVITY</h3>
                     <div className="recent-bids-list">
-                      {selectedUserProfile.recentBids.slice(0, 10).map((bid, idx) => (
+                      {selectedUserProfile.recentBids.filter(bid => bid.castData).slice(0, 10).map((bid, idx) => (
                         <div key={`${bid.castHash}-${idx}`} className="recent-bid-item">
                           <div className="bid-header">
                             <span className="bid-amount">{formatUSDC(bid.amountCents)}</span>

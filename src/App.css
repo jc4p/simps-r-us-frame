@@ -1511,7 +1511,7 @@ body {
   background: none;
   border: none;
   color: var(--gray-medium);
-  padding: 0.5rem;
+  padding: 1rem 0.5rem;
   cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
@@ -1692,6 +1692,10 @@ body {
   border: 1px solid var(--gray-light);
   border-radius: 8px;
   transition: all 0.2s ease;
+}
+
+.creator-stat-item.clickable {
+  cursor: pointer;
 }
 
 .creator-stat-item:hover {
