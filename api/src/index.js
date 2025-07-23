@@ -1675,7 +1675,7 @@ app.get('/analytics/hall-of-shame/:fid', async (c) => {
     FROM user_bids_per_auction
     GROUP BY creator_fid
     ORDER BY auctions_bid_on DESC, total_spent DESC
-    LIMIT 5`,
+    LIMIT 10`,
     [fid]
   );
   

@@ -845,10 +845,11 @@ body {
 
 .battle-input {
   font-family: var(--font-body);
-  font-size: 1rem;
+  font-size: 16px; /* 16px prevents iOS zoom */
   padding: 0.75rem 1rem;
   border: 2px solid var(--black);
   background: var(--white);
+  color: var(--black);
   width: 100%;
   max-width: 300px;
   transition: all 0.2s ease;
@@ -1603,7 +1604,7 @@ body {
   
   .battle-input {
     max-width: 100%;
-    font-size: 0.9rem;
+    font-size: 16px; /* 16px prevents iOS zoom */
   }
   
   .vs-divider {
@@ -2096,4 +2097,45 @@ body {
   font-size: 0.75rem;
   text-transform: uppercase;
   color: var(--gray-medium);
+}
+
+/* Dark Mode Support for iOS */
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: var(--black);
+    color: var(--white);
+  }
+  
+  .battle-input {
+    background: var(--gray-dark);
+    color: var(--white);
+    border-color: var(--gray-medium);
+  }
+  
+  .battle-input:focus {
+    border-color: var(--white);
+    box-shadow: 0 0 0 2px var(--gray-medium);
+  }
+  
+  .vs-divider {
+    color: var(--white);
+  }
+  
+  .battle-headline,
+  .tabloid-headline {
+    color: var(--white);
+  }
+  
+  .battle-result {
+    color: var(--white);
+  }
+  
+  .fighter-name,
+  .fighter-stats {
+    color: var(--white);
+  }
+  
+  .auction-item {
+    color: var(--gray-lighter);
+  }
 }
