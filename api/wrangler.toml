@@ -1,0 +1,43 @@
+# For more details on how to configure Wrangler, refer to:
+# https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "simps-api"
+main = "src/index.js"
+compatibility_flags = [ "nodejs_compat" ]
+compatibility_date = "2025-07-23"
+
+[observability]
+enabled = true
+
+# Environment Variables from .dev.vars will be automatically loaded during development
+# For production, use wrangler secret put for sensitive values
+
+# Scheduled event handler for syncing blockchain events
+[triggers]
+crons = ["*/5 * * * *"] # Every 5 minutes
+
+# Smart Placement
+# Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+# [placement]
+# mode = "smart"
+
+# Bindings
+# Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform
+# https://developers.cloudflare.com/workers/runtime-apis/bindings/
+
+# KV Namespace for caching Neynar API responses
+[[kv_namespaces]]
+binding = "NEYNAR_CACHE"
+id = "58345d6a5cc344a1893a7dca94bd8115"
+
+# Static Assets
+# https://developers.cloudflare.com/workers/static-assets/binding/
+# [assets]
+# directory = "./public/"
+# binding = "ASSETS"
+
+# Service Bindings (communicate between multiple Workers)
+# https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
+# [[services]]
+# binding = "MY_SERVICE"
+# service = "my-service"
