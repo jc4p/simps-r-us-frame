@@ -672,9 +672,11 @@ const data = await response.json();
 
 **Endpoint:** `GET /analytics/hall-of-shame/:fid`
 
-🎆 **NEW CONSOLIDATED ENDPOINT** - Get everything needed for a user's Hall of Shame popup in ONE API call.
+🎆 **CONSOLIDATED ENDPOINT WITH CACHING** - Get everything needed for a user's Hall of Shame popup in ONE API call. Now includes recent bids and 4-minute caching for blazing fast performance!
 
 **Use Case:** When user clicks on a simp in the Hall of Shame, show a detailed popup with all their simping data.
+
+**Performance:** Cached for 4 minutes, response times <50ms after first load.
 
 **Example Request:**
 ```javascript
@@ -716,7 +718,7 @@ const data = await response.json();
     "volumeRank": 8                 // #8 by spending
   },
   
-  // === TOP 5 CREATORS THEY SIMP FOR ===
+  // === TOP 10 CREATORS THEY SIMP FOR ===
   "topCreators": [
     {
       "creatorFid": 9876,
@@ -731,7 +733,7 @@ const data = await response.json();
         "pfpUrl": "https://example.com/creator.jpg"
       }
     }
-    // ... up to 5 creators
+    // ... up to 10 creators
   ],
   
   // === TOP 5 CASTS THEY'VE BID ON MOST ===
@@ -757,6 +759,28 @@ const data = await response.json();
       }
     }
     // ... up to 5 casts
+  ],
+  
+  // === 🆕 RECENT BIDDING ACTIVITY (NEW!) ===
+  "recentBids": [
+    {
+      "auctionId": 456,
+      "castHash": "0xdef456...",
+      "creatorFid": 7890,
+      "amountCents": 15000,         // $150.00 bid
+      "timestamp": "2024-01-20T14:55:00Z",
+      "transactionHash": "0x123abc...",
+      "auctionEndTime": "2024-01-20T16:00:00Z",
+      "auctionState": 1,            // 1=Active, 2=Ended, 3=Settled
+      "creatorProfile": { /* Creator's Neynar profile */ },
+      "castData": {
+        "hash": "0xdef456...",
+        "text": "Limited edition drop! 💎",
+        "timestamp": "2024-01-20T08:00:00Z",
+        "firstEmbed": { /* image/url/cast */ }
+      }
+    }
+    // ... up to 20 most recent bids
   ]
 }
 ```

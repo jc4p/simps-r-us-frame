@@ -133,7 +133,8 @@ function App() {
   const loadUserLevel = async (fid) => {
     try {
       setLoading(prev => ({ ...prev, userLevel: true }))
-      const data = await api.getSimpLevel(fid)
+      // Use hall-of-shame endpoint for comprehensive data
+      const data = await api.getHallOfShameProfile(fid)
       setUserLevel(data)
     } catch (err) {
       console.error('Failed to load user level:', err)
@@ -296,20 +297,17 @@ function App() {
                   <div className="favorite-creators">
                     <h4 className="creators-label">SIMPS FOR:</h4>
                     <div className="creators-list">
-                      {simp.top_creators.slice(0, 3).map((creator, idx) => (
+                      {simp.top_creators.slice(0, 5).map((creator, idx) => (
                         <div key={creator.creator_fid} className="creator-item">
                           <img 
                             src={creator.profile?.pfpUrl || '/default-avatar.png'} 
                             alt={creator.profile?.username || 'Creator'}
                             className="creator-avatar-tiny"
-                            title={`@${creator.profile?.username || `fid:${creator.creator_fid}`} - ${creator.auctions_bid_on} auctions`}
+                            title={`@${creator.profile?.username || `fid:${creator.creator_fid}`} - ${creator.auctions_bid_on} auctions - ${formatUSDC(creator.total_spent_cents)}`}
                           />
                           <span className="creator-username">@{creator.profile?.username || `fid:${creator.creator_fid}`}</span>
                         </div>
                       ))}
-                      {simp.top_creators.length > 3 && (
-                        <span className="more-creators">+{simp.top_creators.length - 3} more</span>
-                      )}
                     </div>
                   </div>
                 )}
@@ -597,65 +595,187 @@ function App() {
         <div className="level-report">
           <div className="user-header">
             <img 
-              src={userLevel.profile?.pfpUrl || '/default-avatar.png'}
-              alt={userLevel.profile?.username || 'You'}
+              src={userLevel.user?.profile?.pfpUrl || '/default-avatar.png'}
+              alt={userLevel.user?.profile?.username || 'You'}
               className="user-avatar"
             />
-            <h3>{userLevel.profile?.displayName || 'Anonymous'}</h3>
-            <p>@{userLevel.profile?.username || `fid:${userLevel.fid}`}</p>
+            <h3>{userLevel.user?.profile?.displayName || 'Anonymous'}</h3>
+            <p>@{userLevel.user?.profile?.username || `fid:${userLevel.user?.fid}`}</p>
+            {userLevel.user?.profile?.bio && (
+              <p className="profile-bio">{userLevel.user.profile.bio}</p>
+            )}
+            {userLevel.user?.profile?.followerCount && (
+              <div className="profile-social-stats">
+                <span>{formatBigNumber(userLevel.user.profile.followerCount)} followers</span>
+                {userLevel.user.profile.powerBadge && <span className="power-badge">⚡ Power Badge</span>}
+              </div>
+            )}
           </div>
 
-          <div className="level-display" style={{ backgroundColor: getSimpLevel(parseInt(userLevel.stats.total_bids)).color }}>
-            <div className="level-emoji">{userLevel.emoji}</div>
-            <div className="level-name">{userLevel.level}</div>
-            <div className="percentile">{userLevel.percentile}</div>
-          </div>
+          {userLevel.user?.simpLevel && (
+            <div className="level-display" style={{ backgroundColor: getSimpLevel(userLevel.user.simpLevel.totalBids).color }}>
+              <div className="level-emoji">{userLevel.user.simpLevel.emoji}</div>
+              <div className="level-name">
+                {userLevel.stats?.bidRank === 1 ? 'SIMP IN CHARGE' : userLevel.user.simpLevel.level}
+              </div>
+              <div className="percentile">#{userLevel.stats?.bidRank || 'N/A'} SIMP</div>
+            </div>
+          )}
+
+          {/* Spending Percentile */}
+          {userLevel.stats?.volumeRank && (
+            <div className="spending-percentile">
+              <div className="percentile-text">
+                TOP {((userLevel.stats.volumeRank / (userLevel.stats.totalSimps || 1000)) * 100).toFixed(1)}%
+              </div>
+              <div className="percentile-subtitle">BY SPENDING VOLUME</div>
+            </div>
+          )}
 
           <div className="user-stats">
             <div className="stat-card">
               <span className="stat-label">TOTAL BIDS</span>
-              <span className="stat-value">{userLevel.stats.total_bids}</span>
+              <span className="stat-value">{userLevel.stats?.totalBids || 0}</span>
             </div>
             <div className="stat-card">
               <span className="stat-label">TOTAL SPENT</span>
-              <span className="stat-value">{formatUSDC(userLevel.stats.total_volume_cents)}</span>
+              <span className="stat-value">{formatUSDC(userLevel.stats?.totalVolumeCents || 0)}</span>
             </div>
             <div className="stat-card">
               <span className="stat-label">BID RANK</span>
-              <span className="stat-value">#{userLevel.rank.bidRank} of {userLevel.rank.totalSimps}</span>
+              <span className="stat-value">#{userLevel.stats?.bidRank || 'N/A'}</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">VOLUME RANK</span>
+              <span className="stat-value">#{userLevel.stats?.volumeRank || 'N/A'}</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">HIGHEST BID</span>
+              <span className="stat-value">{formatUSDC(userLevel.stats?.highestBidCents || 0)}</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">AUCTIONS</span>
+              <span className="stat-value">{userLevel.stats?.auctionsParticipated || 0}</span>
             </div>
           </div>
 
-          {userLevel.achievements && userLevel.achievements.length > 0 && (
-            <div className="achievements">
-              <h4>YOUR AWARDS</h4>
-              <div className="achievement-list">
-                {userLevel.achievements.map((achievement, index) => (
-                  <div key={index} className="achievement">
-                    <span className="achievement-emoji">{achievement.emoji}</span>
-                    <div className="achievement-info">
-                      <h5>{achievement.name}</h5>
-                      <p>{achievement.description}</p>
-                    </div>
+          {/* Timeline Section */}
+          {(userLevel.stats?.firstBidDate || userLevel.stats?.lastBidDate) && (
+            <div className="timeline-section">
+              <h3>YOUR SIMPING TIMELINE</h3>
+              <div className="timeline-dates">
+                {userLevel.stats.firstBidDate && (
+                  <div className="timeline-item">
+                    <div className="timeline-label">SIMPING SINCE</div>
+                    <div className="timeline-date">{new Date(userLevel.stats.firstBidDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</div>
                   </div>
-                ))}
+                )}
+                {userLevel.stats.lastBidDate && (
+                  <div className="timeline-item">
+                    <div className="timeline-label">LAST ACTIVE</div>
+                    <div className="timeline-date">{formatTimeAgo(new Date(userLevel.stats.lastBidDate))}</div>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {userLevel.nextMilestone && (
-            <div className="next-milestone">
-              <h4>NEXT SCANDAL LEVEL</h4>
-              <p>{userLevel.nextMilestone.name}</p>
-              <div className="progress-bar">
-                <div 
-                  className="progress-fill" 
-                  style={{ width: `${(userLevel.nextMilestone.current / userLevel.nextMilestone.requirement) * 100}%` }}
-                />
+          {/* Top Creators Section */}
+          {userLevel.topCreators && userLevel.topCreators.length > 0 && (
+            <div className="profile-section">
+              <h3>USERS YOU LOVE SIMPING FOR</h3>
+              <div className="top-creators-list">
+                {userLevel.topCreators.map((creator, idx) => {
+                  const spendingPercentage = ((creator.totalSpentCents / userLevel.stats?.totalVolumeCents) * 100).toFixed(1)
+                  
+                  return (
+                    <div key={creator.creatorFid} className="creator-stat-item">
+                      <span className="creator-rank">#{idx + 1}</span>
+                      <img 
+                        src={creator.profile?.pfpUrl || '/default-avatar.png'} 
+                        alt={creator.profile?.username || 'Creator'}
+                        className="creator-avatar-small"
+                      />
+                      <div className="creator-info-compact">
+                        <span className="creator-name">{creator.profile?.displayName || 'Anonymous'}</span>
+                        <span className="creator-username">@{creator.profile?.username || `fid:${creator.creatorFid}`}</span>
+                        <div className="creator-stats-row">
+                          <span className="stat">{formatUSDC(creator.totalSpentCents)} ({spendingPercentage}%)</span>
+                          <span className="stat-separator">•</span>
+                          <span className="stat">{creator.auctionsBidOn} auctions</span>
+                          {creator.totalBidsPlaced && (
+                            <>
+                              <span className="stat-separator">•</span>
+                              <span className="stat">{creator.totalBidsPlaced} bids</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-              <p className="progress-text">
-                {userLevel.nextMilestone.current} / {userLevel.nextMilestone.requirement}
-              </p>
+            </div>
+          )}
+
+          {/* Most Bid Casts Section */}
+          {userLevel.mostBidCasts && userLevel.mostBidCasts.length > 0 && (
+            <div className="profile-section">
+              <h3>CASTS YOU CAN'T STOP BIDDING ON</h3>
+              <div className="most-bid-casts-list">
+                {userLevel.mostBidCasts.slice(0, 3).map((cast, idx) => {
+                  const isWinning = cast.userHighestBidCents === cast.auctionHighestBidCents
+                  const bidPercentage = ((cast.userBidCount / cast.totalAuctionBids) * 100).toFixed(0)
+                  
+                  return (
+                    <div key={cast.castHash} className="most-bid-cast-item">
+                      <div className="cast-bid-header">
+                        <span className="bid-frequency">
+                          🔥 Bid {cast.userBidCount} times! ({bidPercentage}% of all bids)
+                        </span>
+                        <span className={`bid-status ${isWinning ? 'winning' : 'losing'}`}>
+                          {isWinning ? '👑 WINNING' : '💔 OUTBID'}
+                        </span>
+                      </div>
+                      
+                      <div className="bid-amounts-row">
+                        <span className="user-max-bid">Your max: {formatUSDC(cast.userHighestBidCents)}</span>
+                        <span className="vs-indicator">vs</span>
+                        <span className="auction-max-bid">Top bid: {formatUSDC(cast.auctionHighestBidCents)}</span>
+                      </div>
+                      
+                      <div className="cast-creator-row">
+                        <img 
+                          src={cast.creatorProfile?.pfpUrl || '/default-avatar.png'}
+                          alt={cast.creatorProfile?.username || 'Creator'}
+                          className="creator-avatar-tiny"
+                        />
+                        <span>@{cast.creatorProfile?.username || `fid:${cast.creatorFid}`}</span>
+                        <span className="auction-status-badge">{getAuctionStatus(cast.state, cast.endTime).text}</span>
+                      </div>
+                      
+                      {cast.castData && (
+                        <div className="cast-preview-compact">
+                          <p className="cast-text-preview">{cast.castData.text}</p>
+                          {cast.castData.firstEmbed?.type === 'image' && (
+                            <img 
+                              src={cast.castData.firstEmbed.url} 
+                              alt="Cast embed" 
+                              className="cast-embed-preview"
+                            />
+                          )}
+                          <button 
+                            className="view-cast-btn-mini"
+                            onClick={() => viewCast(cast.castHash)}
+                          >
+                            VIEW AUCTION →
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -826,7 +946,7 @@ function App() {
 
                 {selectedUserProfile.topCreators && selectedUserProfile.topCreators.length > 0 && (
                   <div className="profile-section">
-                    <h3>THIRSTS FOR</h3>
+                    <h3>USERS THEY LOVE SIMPING FOR</h3>
                     <div className="top-creators-list">
                       {selectedUserProfile.topCreators.map((creator, idx) => {
                         const spendingPercentage = ((creator.totalSpentCents / selectedUserProfile.stats?.totalVolumeCents) * 100).toFixed(1)
@@ -927,6 +1047,45 @@ function App() {
                           </div>
                         )
                       })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent Bids Section */}
+                {selectedUserProfile.recentBids && selectedUserProfile.recentBids.length > 0 && (
+                  <div className="profile-section">
+                    <h3>RECENT SIMPING ACTIVITY</h3>
+                    <div className="recent-bids-list">
+                      {selectedUserProfile.recentBids.slice(0, 10).map((bid, idx) => (
+                        <div key={`${bid.castHash}-${idx}`} className="recent-bid-item">
+                          <div className="bid-header">
+                            <span className="bid-amount">{formatUSDC(bid.amountCents)}</span>
+                            <span className="bid-time">{formatTimeAgo(new Date(bid.timestamp))}</span>
+                          </div>
+                          
+                          <div className="bid-creator-info">
+                            <img 
+                              src={bid.creatorProfile?.pfpUrl || '/default-avatar.png'}
+                              alt={bid.creatorProfile?.username || 'Creator'}
+                              className="creator-avatar-tiny"
+                            />
+                            <span className="creator-name">@{bid.creatorProfile?.username || `fid:${bid.creatorFid}`}</span>
+                            <span className="auction-status-mini">{getAuctionStatus(bid.auctionState, bid.auctionEndTime).text}</span>
+                          </div>
+                          
+                          {bid.castData && (
+                            <div className="bid-cast-preview">
+                              <p className="cast-text-mini">{bid.castData.text}</p>
+                              <button 
+                                className="view-cast-btn-mini"
+                                onClick={() => viewCast(bid.castHash)}
+                              >
+                                VIEW →
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

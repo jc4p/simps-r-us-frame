@@ -1771,6 +1771,19 @@ app.get('/analytics/hall-of-shame/:fid', async (c) => {
       LEFT JOIN bids b ON a.id = b.auction_id
       WHERE a.id IN (SELECT DISTINCT auction_id FROM user_bids)
       GROUP BY a.id
+    ),
+    recent_user_bids AS (
+      SELECT 
+        auction_id,
+        auction_cast_hash,
+        creator_fid,
+        amount,
+        timestamp,
+        transaction_hash,
+        auction_end_time,
+        auction_state,
+        ROW_NUMBER() OVER (ORDER BY timestamp DESC) as rn
+      FROM user_bids
     )
     SELECT 
       -- User stats
@@ -1799,7 +1812,22 @@ app.get('/analytics/hall-of-shame/:fid', async (c) => {
        )
        FROM most_bid_casts mbc
        LEFT JOIN auction_totals at ON mbc.auction_id = at.auction_id
-       WHERE mbc.rn <= 5) as most_bid_casts`,
+       WHERE mbc.rn <= 5) as most_bid_casts,
+      -- Recent bids (limit 20)
+      (SELECT json_agg(
+         json_build_object(
+           'auction_id', rub.auction_id,
+           'cast_hash', rub.auction_cast_hash,
+           'creator_fid', rub.creator_fid,
+           'amount', rub.amount,
+           'timestamp', rub.timestamp,
+           'transaction_hash', rub.transaction_hash,
+           'auction_end_time', rub.auction_end_time,
+           'auction_state', rub.auction_state
+         ) ORDER BY rub.rn
+       )
+       FROM recent_user_bids rub
+       WHERE rub.rn <= 20) as recent_bids`,
     [fid]
   );
   
@@ -1809,18 +1837,26 @@ app.get('/analytics/hall-of-shame/:fid', async (c) => {
   const rank = data.rank || null;
   const topCreators = data.top_creators || [];
   const mostBidCasts = data.most_bid_casts || [];
+  const recentBids = data.recent_bids || [];
   
   // Extract all FIDs and cast hashes for batch fetching
   const creatorFids = new Set();
-  topCreators.forEach(c => creatorFids.add(c.creator_fid));
-  mostBidCasts.forEach(c => creatorFids.add(c.creator_fid));
+  const allCastHashes = new Set();
   
-  const castHashes = mostBidCasts.map(c => c.cast_hash);
+  topCreators.forEach(c => creatorFids.add(c.creator_fid));
+  mostBidCasts.forEach(c => {
+    creatorFids.add(c.creator_fid);
+    allCastHashes.add(c.cast_hash);
+  });
+  recentBids.forEach(b => {
+    creatorFids.add(b.creator_fid);
+    allCastHashes.add(b.cast_hash);
+  });
   
   // Parallel API calls
   const [creatorProfiles, castData] = await Promise.all([
     creatorFids.size > 0 ? c.get('neynarClient').getUsersByFids([...creatorFids]) : {},
-    castHashes.length > 0 ? c.get('neynarClient').getCastsByHashes(castHashes) : {}
+    allCastHashes.size > 0 ? c.get('neynarClient').getCastsByHashes([...allCastHashes]) : {}
   ]);
   
   // Calculate simp level
@@ -1899,6 +1935,18 @@ app.get('/analytics/hall-of-shame/:fid', async (c) => {
       totalAuctionBids: parseInt(row.total_auction_bids) || 0,
       creatorProfile: creatorProfiles[row.creator_fid] || null,
       castData: castData[row.cast_hash] || null
+    })),
+    recentBids: recentBids.map(bid => ({
+      auctionId: bid.auction_id,
+      castHash: bid.cast_hash,
+      creatorFid: bid.creator_fid,
+      amountCents: usdcToCents(bid.amount),
+      timestamp: bid.timestamp,
+      transactionHash: bid.transaction_hash,
+      auctionEndTime: bid.auction_end_time,
+      auctionState: bid.auction_state,
+      creatorProfile: creatorProfiles[bid.creator_fid] || null,
+      castData: castData[bid.cast_hash] || null
     }))
   };
   
