@@ -1041,6 +1041,7 @@ body {
 }
 
 .fighter-avatar-vs {
+  object-fit: cover;
   width: 70px;
   height: 70px;
   border-radius: 50%;
