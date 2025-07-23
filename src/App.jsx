@@ -37,12 +37,15 @@ function App() {
   // Initialize Farcaster SDK
   useEffect(() => {
     const initializeFrame = async () => {
+      console.log('Initializing frame')
       try {
         // Get frame context
+        console.log('Getting frame context')
         const context = await sdk.context
+        console.log('Frame context:', context)
         setFrameContext(context)
         
-        // Mark frame as ready
+        console.log('Marking frame as ready')
         sdk.actions.ready()
       } catch (err) {
         console.error('Frame initialization error:', err)
