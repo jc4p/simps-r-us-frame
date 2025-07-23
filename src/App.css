@@ -10,6 +10,8 @@
   --gray-lighter: #CCCCCC;
   --off-white: #F5F5F5;
   --accent: #000000; /* Pure black for emphasis */
+  --hot-pink: #FF1493; /* Deep pink for emphasis */
+  --beige: #FFF8DC; /* Light beige for hover states */
   
   /* Typography - Newspaper fonts */
   --font-headline: 'Archivo Black', sans-serif;
