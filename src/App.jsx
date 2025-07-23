@@ -659,26 +659,6 @@ function App() {
             </div>
           </div>
 
-          {/* Timeline Section */}
-          {(userLevel.stats?.firstBidDate || userLevel.stats?.lastBidDate) && (
-            <div className="timeline-section">
-              <h3>YOUR SIMPING TIMELINE</h3>
-              <div className="timeline-dates">
-                {userLevel.stats.firstBidDate && (
-                  <div className="timeline-item">
-                    <div className="timeline-label">SIMPING SINCE</div>
-                    <div className="timeline-date">{new Date(userLevel.stats.firstBidDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</div>
-                  </div>
-                )}
-                {userLevel.stats.lastBidDate && (
-                  <div className="timeline-item">
-                    <div className="timeline-label">LAST ACTIVE</div>
-                    <div className="timeline-date">{formatTimeAgo(new Date(userLevel.stats.lastBidDate))}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Top Creators Section */}
           {userLevel.topCreators && userLevel.topCreators.length > 0 && (
@@ -714,6 +694,51 @@ function App() {
                     </div>
                   )
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* Recent Bids Section */}
+          {userLevel.recentBids && userLevel.recentBids.length > 0 && (
+            <div className="profile-section">
+              <h3>YOUR RECENT SIMPING ACTIVITY</h3>
+              <div className="recent-bids-list">
+                {userLevel.recentBids.slice(0, 10).map((bid, idx) => (
+                  <div key={`${bid.castHash}-${idx}`} className="recent-bid-item">
+                    <div className="bid-header">
+                      <span className="bid-amount">{formatUSDC(bid.amountCents)}</span>
+                      <span className="bid-time">{new Date(bid.timestamp).toLocaleString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric', 
+                        hour: 'numeric', 
+                        minute: '2-digit',
+                        hour12: true 
+                      })}</span>
+                    </div>
+                    
+                    <div className="bid-creator-info">
+                      <img 
+                        src={bid.creatorProfile?.pfpUrl || '/default-avatar.png'}
+                        alt={bid.creatorProfile?.username || 'Creator'}
+                        className="creator-avatar-tiny"
+                      />
+                      <span className="creator-name">@{bid.creatorProfile?.username || `fid:${bid.creatorFid}`}</span>
+                      <span className="auction-status-mini">{getAuctionStatus(bid.auctionState, bid.auctionEndTime).text}</span>
+                    </div>
+                    
+                    {bid.castData && (
+                      <div className="bid-cast-preview">
+                        <p className="cast-text-mini">{bid.castData.text}</p>
+                        <button 
+                          className="view-cast-btn-mini"
+                          onClick={() => viewCast(bid.castHash)}
+                        >
+                          VIEW →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -911,26 +936,6 @@ function App() {
                   </div>
                 )}
 
-                {/* Timeline Section */}
-                {(selectedUserProfile.stats?.firstBidDate || selectedUserProfile.stats?.lastBidDate) && (
-                  <div className="timeline-section">
-                    <h3>SIMPING TIMELINE</h3>
-                    <div className="timeline-dates">
-                      {selectedUserProfile.stats.firstBidDate && (
-                        <div className="timeline-item">
-                          <div className="timeline-label">SIMPING SINCE</div>
-                          <div className="timeline-date">{new Date(selectedUserProfile.stats.firstBidDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</div>
-                        </div>
-                      )}
-                      {selectedUserProfile.stats.lastBidDate && (
-                        <div className="timeline-item">
-                          <div className="timeline-label">LAST ACTIVE</div>
-                          <div className="timeline-date">{formatTimeAgo(new Date(selectedUserProfile.stats.lastBidDate))}</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
 
                 {selectedUserProfile.user?.simpLevel && (
                   <div className="profile-level-section">
@@ -966,12 +971,6 @@ function App() {
                                 <span className="stat">{formatUSDC(creator.totalSpentCents)} ({spendingPercentage}%)</span>
                                 <span className="stat-separator">•</span>
                                 <span className="stat">{creator.auctionsBidOn} auctions</span>
-                                {creator.totalBidsPlaced && (
-                                  <>
-                                    <span className="stat-separator">•</span>
-                                    <span className="stat">{creator.totalBidsPlaced} bids</span>
-                                  </>
-                                )}
                               </div>
                             </div>
                           </div>
@@ -1060,7 +1059,13 @@ function App() {
                         <div key={`${bid.castHash}-${idx}`} className="recent-bid-item">
                           <div className="bid-header">
                             <span className="bid-amount">{formatUSDC(bid.amountCents)}</span>
-                            <span className="bid-time">{formatTimeAgo(new Date(bid.timestamp))}</span>
+                            <span className="bid-time">{new Date(bid.timestamp).toLocaleString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric', 
+                              hour: 'numeric', 
+                              minute: '2-digit',
+                              hour12: true 
+                            })}</span>
                           </div>
                           
                           <div className="bid-creator-info">

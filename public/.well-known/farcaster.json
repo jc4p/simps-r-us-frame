@@ -1,0 +1,18 @@
+{
+  "accountAssociation": {
+    "header": "eyJmaWQiOjk3NzIzMywidHlwZSI6ImN1c3RvZHkiLCJrZXkiOiIweGE2N0JhMDI4MTIzMWVCOUUyZWE0Y0Y5Nzg5NGMwYjBiNUI4MDFDYzYifQ",
+    "payload": "eyJkb21haW4iOiJzaW1wcy5rYXNyYS5jb2RlcyJ9",
+    "signature": "MHg4NGQwZDkyZWQ5ZTMxODA1ZDNjNjExOGFmNWMyMjdlZDBiZWFmZmZkMWI1MmNmODdiNmIyMDU0MDU1M2VjZGJjMGIwZTIzYTE5YzE4YmUwYTUzMTMyMDc5ZjIzZTZjNzY3NGVmYTVlNzEwNDM0YmI3YjY2NTQxZmE2N2NjMDM2MTFi"
+  },
+  "frame": {
+    "version": "1",
+    "name": "Simps R Us",
+    "iconUrl": "https://cover-art.kasra.codes/simp_square.png",
+    "homeUrl": "https://simps.kasra.codes",
+    "imageUrl": "https://cover-art.kasra.codes/simp_rectangle.png",
+    "buttonTitle": "See The Top Simps",
+    "splashImageUrl": "https://cover-art.kasra.codes/simp_square.png",
+    "splashBackgroundColor": "#FFFFFF"
+  }
+}
+
