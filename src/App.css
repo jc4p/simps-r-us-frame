@@ -796,6 +796,7 @@ body {
   height: 24px;
   border-radius: 50%;
   border: 2px solid var(--gray-lighter);
+  object-fit: cover;
 }
 
 .auction-cast-preview {
@@ -1715,6 +1716,7 @@ body {
   height: 40px;
   border-radius: 50%;
   border: 2px solid var(--black);
+  object-fit: cover;
 }
 
 .creator-info-compact {
@@ -1880,6 +1882,7 @@ body {
   border-radius: 50%;
   border: 3px solid var(--black);
   margin-bottom: 1rem;
+  object-fit: cover;
 }
 
 .profile-header h2 {
@@ -2076,6 +2079,7 @@ body {
   height: 30px;
   border-radius: 50%;
   border: 1px solid var(--black);
+  object-fit: cover;
 }
 
 .fan-name {

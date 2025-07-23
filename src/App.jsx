@@ -885,10 +885,15 @@ function App() {
                   <img 
                     src={selectedUserProfile.user?.profile?.pfpUrl || '/default-avatar.png'}
                     alt={selectedUserProfile.user?.profile?.username || 'User'}
-                    className="profile-avatar"
+                    className="profile-avatar clickable"
+                    onClick={() => viewProfile(selectedUserProfile.user?.fid)}
                   />
-                  <h2>{selectedUserProfile.user?.profile?.displayName || 'Anonymous'}</h2>
-                  <p className="profile-username">@{selectedUserProfile.user?.profile?.username || `fid:${selectedUserProfile.user?.fid}`}</p>
+                  <h2 className="clickable" onClick={() => viewProfile(selectedUserProfile.user?.fid)}>
+                    {selectedUserProfile.user?.profile?.displayName || 'Anonymous'}
+                  </h2>
+                  <p className="profile-username clickable" onClick={() => viewProfile(selectedUserProfile.user?.fid)}>
+                    @{selectedUserProfile.user?.profile?.username || `fid:${selectedUserProfile.user?.fid}`}
+                  </p>
                   {selectedUserProfile.user?.profile?.bio && (
                     <p className="profile-bio">{selectedUserProfile.user.profile.bio}</p>
                   )}
@@ -1015,9 +1020,6 @@ function App() {
                               {getAuctionStatus(cast.state, cast.endTime).text !== 'BIDDING WAR!' && (
                                 <span className="auction-status-badge">{getAuctionStatus(cast.state, cast.endTime).text}</span>
                               )}
-                        {getAuctionStatus(cast.state, cast.endTime).text !== 'BIDDING WAR!' && (
-                          <span className="auction-status-badge">{getAuctionStatus(cast.state, cast.endTime).text}</span>
-                        )}
                             </div>
                             
                             {cast.castData && (
