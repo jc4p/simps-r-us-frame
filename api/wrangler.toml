@@ -41,3 +41,10 @@ id = "58345d6a5cc344a1893a7dca94bd8115"
 # [[services]]
 # binding = "MY_SERVICE"
 # service = "my-service"
+
+# Hyperdrive Binding
+# https://developers.cloudflare.com/hyperdrive/
+# [hyperdrive]
+# binding = "HYPERDRIVE"
+# id = "YOUR_HYPERDRIVE_ID"
+# localConnectionString = "postgresql://user:password@localhost:5432/db"

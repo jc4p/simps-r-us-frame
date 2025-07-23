@@ -1,4 +1,4 @@
-import { Client } from 'pg';
+import { Client } from '@neondatabase/serverless';
 
 export async function getDbClient(env) {
   const client = new Client({
@@ -24,7 +24,14 @@ export async function getLastSyncedBlock(env) {
     env,
     'SELECT last_block_number FROM sync_status WHERE id = 1'
   );
-  return result.rows[0]?.last_block_number || 0n;
+  console.log('getLastSyncedBlock query result:', result.rows);
+  
+  // PostgreSQL returns bigint as string, need to convert to BigInt
+  const blockNumber = result.rows[0]?.last_block_number;
+  if (blockNumber) {
+    return BigInt(blockNumber);
+  }
+  return 0n;
 }
 
 export async function updateLastSyncedBlock(env, blockNumber) {

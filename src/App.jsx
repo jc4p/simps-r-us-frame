@@ -746,6 +746,12 @@ function App() {
                   {selectedUserProfile.user?.profile?.bio && (
                     <p className="profile-bio">{selectedUserProfile.user.profile.bio}</p>
                   )}
+                  {selectedUserProfile.user?.profile?.followerCount && (
+                    <div className="profile-social-stats">
+                      <span>{formatBigNumber(selectedUserProfile.user.profile.followerCount)} followers</span>
+                      {selectedUserProfile.user.profile.powerBadge && <span className="power-badge">⚡ Power Badge</span>}
+                    </div>
+                  )}
                 </div>
 
                 <div className="profile-stats-grid">
@@ -758,14 +764,53 @@ function App() {
                     <span className="stat-value">{formatUSDC(selectedUserProfile.stats?.totalVolumeCents || 0)}</span>
                   </div>
                   <div className="stat-box">
-                    <span className="stat-label">RANK</span>
+                    <span className="stat-label">BID RANK</span>
                     <span className="stat-value">#{selectedUserProfile.stats?.bidRank || 'N/A'}</span>
+                  </div>
+                  <div className="stat-box">
+                    <span className="stat-label">VOLUME RANK</span>
+                    <span className="stat-value">#{selectedUserProfile.stats?.volumeRank || 'N/A'}</span>
                   </div>
                   <div className="stat-box">
                     <span className="stat-label">HIGHEST BID</span>
                     <span className="stat-value">{formatUSDC(selectedUserProfile.stats?.highestBidCents || 0)}</span>
                   </div>
+                  <div className="stat-box">
+                    <span className="stat-label">AUCTIONS</span>
+                    <span className="stat-value">{selectedUserProfile.stats?.auctionsParticipated || 0}</span>
+                  </div>
                 </div>
+
+                {/* Spending Percentile */}
+                {selectedUserProfile.stats?.volumeRank && (
+                  <div className="spending-percentile">
+                    <div className="percentile-text">
+                      TOP {((selectedUserProfile.stats.volumeRank / (selectedUserProfile.stats.totalSimps || 1000)) * 100).toFixed(1)}%
+                    </div>
+                    <div className="percentile-subtitle">BY SPENDING VOLUME</div>
+                  </div>
+                )}
+
+                {/* Timeline Section */}
+                {(selectedUserProfile.stats?.firstBidDate || selectedUserProfile.stats?.lastBidDate) && (
+                  <div className="timeline-section">
+                    <h3>SIMPING TIMELINE</h3>
+                    <div className="timeline-dates">
+                      {selectedUserProfile.stats.firstBidDate && (
+                        <div className="timeline-item">
+                          <div className="timeline-label">SIMPING SINCE</div>
+                          <div className="timeline-date">{new Date(selectedUserProfile.stats.firstBidDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</div>
+                        </div>
+                      )}
+                      {selectedUserProfile.stats.lastBidDate && (
+                        <div className="timeline-item">
+                          <div className="timeline-label">LAST ACTIVE</div>
+                          <div className="timeline-date">{formatTimeAgo(new Date(selectedUserProfile.stats.lastBidDate))}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {selectedUserProfile.user?.simpLevel && (
                   <div className="profile-level-section">
@@ -783,25 +828,35 @@ function App() {
                   <div className="profile-section">
                     <h3>THIRSTS FOR</h3>
                     <div className="top-creators-list">
-                      {selectedUserProfile.topCreators.map((creator, idx) => (
-                        <div key={creator.creatorFid} className="creator-stat-item">
-                          <span className="creator-rank">#{idx + 1}</span>
-                          <img 
-                            src={creator.profile?.pfpUrl || '/default-avatar.png'} 
-                            alt={creator.profile?.username || 'Creator'}
-                            className="creator-avatar-small"
-                          />
-                          <div className="creator-info-compact">
-                            <span className="creator-name">{creator.profile?.displayName || 'Anonymous'}</span>
-                            <span className="creator-username">@{creator.profile?.username || `fid:${creator.creatorFid}`}</span>
-                            <div className="creator-stats-row">
-                              <span className="stat">{formatUSDC(creator.totalSpentCents)} spent</span>
-                              <span className="stat-separator">•</span>
-                              <span className="stat">{creator.auctionsBidOn} auctions</span>
+                      {selectedUserProfile.topCreators.map((creator, idx) => {
+                        const spendingPercentage = ((creator.totalSpentCents / selectedUserProfile.stats?.totalVolumeCents) * 100).toFixed(1)
+                        
+                        return (
+                          <div key={creator.creatorFid} className="creator-stat-item">
+                            <span className="creator-rank">#{idx + 1}</span>
+                            <img 
+                              src={creator.profile?.pfpUrl || '/default-avatar.png'} 
+                              alt={creator.profile?.username || 'Creator'}
+                              className="creator-avatar-small"
+                            />
+                            <div className="creator-info-compact">
+                              <span className="creator-name">{creator.profile?.displayName || 'Anonymous'}</span>
+                              <span className="creator-username">@{creator.profile?.username || `fid:${creator.creatorFid}`}</span>
+                              <div className="creator-stats-row">
+                                <span className="stat">{formatUSDC(creator.totalSpentCents)} ({spendingPercentage}%)</span>
+                                <span className="stat-separator">•</span>
+                                <span className="stat">{creator.auctionsBidOn} auctions</span>
+                                {creator.totalBidsPlaced && (
+                                  <>
+                                    <span className="stat-separator">•</span>
+                                    <span className="stat">{creator.totalBidsPlaced} bids</span>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )}
@@ -810,43 +865,68 @@ function App() {
                   <div className="profile-section">
                     <h3>CASTS THEY CAN'T STOP BIDDING ON</h3>
                     <div className="most-bid-casts-list">
-                      {selectedUserProfile.mostBidCasts.map((cast, idx) => (
-                        <div key={cast.castHash} className="most-bid-cast-item">
-                          <div className="cast-bid-header">
-                            <span className="bid-frequency">Bid {cast.userBidCount} times!</span>
-                            <span className="max-bid">Max: {formatUSDC(cast.userHighestBidCents)}</span>
-                          </div>
-                          
-                          <div className="cast-creator-row">
-                            <img 
-                              src={cast.creatorProfile?.pfpUrl || '/default-avatar.png'}
-                              alt={cast.creatorProfile?.username || 'Creator'}
-                              className="creator-avatar-tiny"
-                            />
-                            <span>@{cast.creatorProfile?.username || `fid:${cast.creatorFid}`}</span>
-                            <span className="auction-status-badge">{getAuctionStatus(cast.state, cast.endTime).text}</span>
-                          </div>
-                          
-                          {cast.castData && (
-                            <div className="cast-preview-compact">
-                              <p className="cast-text-preview">{cast.castData.text}</p>
-                              {cast.castData.firstEmbed?.type === 'image' && (
-                                <img 
-                                  src={cast.castData.firstEmbed.url} 
-                                  alt="Cast embed" 
-                                  className="cast-embed-preview"
-                                />
-                              )}
-                              <button 
-                                className="view-cast-btn-mini"
-                                onClick={() => viewCast(cast.castHash)}
-                              >
-                                VIEW →
-                              </button>
+                      {selectedUserProfile.mostBidCasts.map((cast, idx) => {
+                        const isWinning = cast.userHighestBidCents === cast.auctionHighestBidCents
+                        const bidPercentage = ((cast.userBidCount / cast.totalAuctionBids) * 100).toFixed(0)
+                        
+                        return (
+                          <div key={cast.castHash} className="most-bid-cast-item">
+                            <div className="cast-bid-header">
+                              <span className="bid-frequency">
+                                🔥 Bid {cast.userBidCount} times! ({bidPercentage}% of all bids)
+                              </span>
+                              <span className={`bid-status ${isWinning ? 'winning' : 'losing'}`}>
+                                {isWinning ? '👑 WINNING' : '💔 OUTBID'}
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      ))}
+                            
+                            <div className="bid-amounts-row">
+                              <span className="user-max-bid">Their max: {formatUSDC(cast.userHighestBidCents)}</span>
+                              <span className="vs-indicator">vs</span>
+                              <span className="auction-max-bid">Top bid: {formatUSDC(cast.auctionHighestBidCents)}</span>
+                            </div>
+                            
+                            <div className="cast-creator-row">
+                              <img 
+                                src={cast.creatorProfile?.pfpUrl || '/default-avatar.png'}
+                                alt={cast.creatorProfile?.username || 'Creator'}
+                                className="creator-avatar-tiny"
+                              />
+                              <span>@{cast.creatorProfile?.username || `fid:${cast.creatorFid}`}</span>
+                              <span className="auction-status-badge">{getAuctionStatus(cast.state, cast.endTime).text}</span>
+                            </div>
+                            
+                            {cast.castData && (
+                              <div className="cast-preview-compact">
+                                <p className="cast-text-preview">{cast.castData.text}</p>
+                                {cast.castData.firstEmbed?.type === 'image' && (
+                                  <img 
+                                    src={cast.castData.firstEmbed.url} 
+                                    alt="Cast embed" 
+                                    className="cast-embed-preview"
+                                  />
+                                )}
+                                {cast.castData.firstEmbed?.type === 'cast' && (
+                                  <div className="quoted-cast-preview">
+                                    <p className="quoted-cast-author">@{cast.castData.firstEmbed.cast_author}</p>
+                                    <p className="quoted-cast-text">{cast.castData.firstEmbed.cast_text}</p>
+                                  </div>
+                                )}
+                                <div className="cast-bid-times">
+                                  <span className="first-bid">First bid: {formatTimeAgo(new Date(cast.firstBidTime))}</span>
+                                  <span className="last-bid">Last bid: {formatTimeAgo(new Date(cast.lastBidTime))}</span>
+                                </div>
+                                <button 
+                                  className="view-cast-btn-mini"
+                                  onClick={() => viewCast(cast.castHash)}
+                                >
+                                  VIEW AUCTION →
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}

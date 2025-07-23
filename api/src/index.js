@@ -174,97 +174,122 @@ app.get('/auctions/:castHash', async (c) => {
 app.get('/analytics/hot-casts', async (c) => {
   const limit = parseInt(c.req.query('limit') || '10');
   
+  // KV cache with 4-minute TTL
+  const CACHE_TTL = 240; // 4 minutes
+  const cacheKey = `hot-casts:${limit}:${Math.floor(Date.now() / 240000)}`;
+  
+  // Try to get from cache first
+  const cached = await c.env.NEYNAR_CACHE?.get(cacheKey);
+  if (cached) {
+    return c.json(JSON.parse(cached));
+  }
+  
+  // Optimized query using arrays instead of JSON aggregation
   const result = await executeQuery(
     c.env,
-    `WITH auction_stats AS (
+    `WITH auction_metrics AS (
       SELECT 
-        a.*,
-        COUNT(b.id) as bid_count,
-        MAX(b.amount) as highest_bid,
-        MIN(b.amount) as lowest_bid,
-        AVG(b.amount) as average_bid,
-        COUNT(DISTINCT b.bidder_fid) as unique_bidders,
-        MAX(b.timestamp) as last_bid_time,
-        MIN(b.timestamp) as first_bid_time
+        a.id,
+        a.cast_hash,
+        a.creator_address,
+        a.creator_fid,
+        a.min_bid,
+        a.end_time,
+        a.state,
+        a.protocol_fee_bps,
+        a.created_at,
+        a.block_number,
+        a.transaction_hash,
+        COALESCE(b.bid_count, 0) as bid_count,
+        COALESCE(b.highest_bid, 0) as highest_bid,
+        COALESCE(b.lowest_bid, 0) as lowest_bid,
+        COALESCE(b.average_bid, 0) as average_bid,
+        COALESCE(b.unique_bidders, 0) as unique_bidders,
+        b.first_bid_time,
+        b.last_bid_time,
+        COALESCE(b.top_bidder_fids, ARRAY[]::integer[]) as top_bidder_fids,
+        COALESCE(b.top_bidder_amounts, ARRAY[]::numeric[]) as top_bidder_amounts,
+        COALESCE(b.top_bidder_counts, ARRAY[]::integer[]) as top_bidder_counts
       FROM auctions a
-      LEFT JOIN bids b ON a.id = b.auction_id
-      GROUP BY a.id
-      HAVING COUNT(b.id) > 0
-    ),
-    top_bidders AS (
-      SELECT 
-        b.auction_id,
-        b.bidder_fid,
-        MAX(b.amount) as bidder_highest,
-        COUNT(*) as bidder_bid_count,
-        ROW_NUMBER() OVER (PARTITION BY b.auction_id ORDER BY MAX(b.amount) DESC) as rn
-      FROM bids b
-      GROUP BY b.auction_id, b.bidder_fid
+      LEFT JOIN LATERAL (
+        WITH bid_stats AS (
+          SELECT 
+            COUNT(*) as bid_count,
+            MAX(amount) as highest_bid,
+            MIN(amount) as lowest_bid,
+            AVG(amount) as average_bid,
+            COUNT(DISTINCT bidder_fid) as unique_bidders,
+            MIN(timestamp) as first_bid_time,
+            MAX(timestamp) as last_bid_time
+          FROM bids
+          WHERE auction_id = a.id
+        ),
+        top_bidders AS (
+          SELECT 
+            bidder_fid,
+            MAX(amount) as max_amount,
+            COUNT(*) as bid_count,
+            ROW_NUMBER() OVER (ORDER BY MAX(amount) DESC, COUNT(*) DESC) as rn
+          FROM bids
+          WHERE auction_id = a.id
+          GROUP BY bidder_fid
+        )
+        SELECT 
+          bs.*,
+          -- Arrays for top 3 bidders
+          array_agg(tb.bidder_fid ORDER BY tb.max_amount DESC, tb.bid_count DESC) FILTER (WHERE tb.rn <= 3) as top_bidder_fids,
+          array_agg(tb.max_amount ORDER BY tb.max_amount DESC, tb.bid_count DESC) FILTER (WHERE tb.rn <= 3) as top_bidder_amounts,
+          array_agg(tb.bid_count ORDER BY tb.max_amount DESC, tb.bid_count DESC) FILTER (WHERE tb.rn <= 3) as top_bidder_counts
+        FROM bid_stats bs
+        CROSS JOIN top_bidders tb
+        GROUP BY bs.bid_count, bs.highest_bid, bs.lowest_bid, bs.average_bid, 
+                 bs.unique_bidders, bs.first_bid_time, bs.last_bid_time
+      ) b ON true
+      WHERE b.bid_count > 0
     )
-    SELECT 
-      s.*,
-      COALESCE(
-        JSON_AGG(
-          JSON_BUILD_OBJECT(
-            'bidder_fid', t.bidder_fid,
-            'highest_bid', t.bidder_highest,
-            'bid_count', t.bidder_bid_count
-          ) ORDER BY t.rn
-        ) FILTER (WHERE t.rn <= 3),
-        '[]'::json
-      ) as top_3_bidders
-    FROM auction_stats s
-    LEFT JOIN top_bidders t ON s.id = t.auction_id AND t.rn <= 3
-    GROUP BY s.id, s.cast_hash, s.creator_address, s.creator_fid, s.min_bid, s.end_time,
-             s.state, s.protocol_fee_bps, s.duration, s.extension, s.extension_threshold,
-             s.min_bid_increment_bps, s.created_at, s.block_number,
-             s.transaction_hash, s.authorizer, s.bid_count, s.highest_bid, s.lowest_bid,
-             s.average_bid, s.unique_bidders, s.last_bid_time, s.first_bid_time
-    ORDER BY s.highest_bid DESC, s.bid_count DESC
+    SELECT * FROM auction_metrics
+    ORDER BY highest_bid DESC, bid_count DESC
     LIMIT $1`,
     [limit]
   );
   
-  // Get all unique FIDs (creators and top bidders)
-  const creatorFids = result.rows.map(row => row.creator_fid);
-  const topBidderFids = result.rows.flatMap(row => {
-    // Handle top_3_bidders - it might be already parsed or need parsing
-    let top3BiddersData;
-    if (typeof row.top_3_bidders === 'string') {
-      top3BiddersData = JSON.parse(row.top_3_bidders);
-    } else if (Array.isArray(row.top_3_bidders)) {
-      top3BiddersData = row.top_3_bidders;
-    } else {
-      top3BiddersData = [];
-    }
-    return top3BiddersData.map(b => b.bidder_fid);
-  });
-  const allFids = [...new Set([...creatorFids, ...topBidderFids])];
+  // Extract unique FIDs for batch fetching
+  const creatorFids = new Set();
+  const bidderFids = new Set();
+  const castHashes = [];
   
-  // Get user profiles and cast content
-  const castHashes = result.rows.map(row => row.cast_hash);
+  result.rows.forEach(row => {
+    creatorFids.add(row.creator_fid);
+    castHashes.push(row.cast_hash);
+    
+    // Add top bidder FIDs
+    if (row.top_bidder_fids) {
+      row.top_bidder_fids.forEach(fid => bidderFids.add(fid));
+    }
+  });
+  
+  const allFids = [...new Set([...creatorFids, ...bidderFids])];
+  
+  // Parallel API calls
   const [users, castContent] = await Promise.all([
     allFids.length > 0 ? c.get('neynarClient').getUsersByFids(allFids) : {},
     castHashes.length > 0 ? c.get('neynarClient').getCastsByHashes(castHashes) : {}
   ]);
   
+  // Format the response
   const hotCasts = result.rows.map(row => {
-    // Handle top_3_bidders - it might be already parsed or need parsing
-    let top3BiddersData;
-    if (typeof row.top_3_bidders === 'string') {
-      top3BiddersData = JSON.parse(row.top_3_bidders);
-    } else if (Array.isArray(row.top_3_bidders)) {
-      top3BiddersData = row.top_3_bidders;
-    } else {
-      top3BiddersData = [];
+    // Build top 3 bidders from arrays
+    const top3Bidders = [];
+    if (row.top_bidder_fids) {
+      for (let i = 0; i < row.top_bidder_fids.length; i++) {
+        top3Bidders.push({
+          bidderFid: row.top_bidder_fids[i],
+          highestBidCents: usdcToCents(row.top_bidder_amounts[i]),
+          bidCount: parseInt(row.top_bidder_counts[i]) || 0,
+          profile: users[row.top_bidder_fids[i]] || null
+        });
+      }
     }
-    
-    const top3Bidders = top3BiddersData.map(bidder => ({
-      bidderFid: bidder.bidder_fid,
-      highestBidCents: usdcToCents(bidder.highest_bid),
-      bidCount: parseInt(bidder.bid_count) || 0,
-      profile: users[bidder.bidder_fid] || null
-    }));
     
     // Calculate time-based info
     const now = new Date();
@@ -286,7 +311,7 @@ app.get('/analytics/hot-casts', async (c) => {
       // Auction parameters
       minBidCents: usdcToCents(row.min_bid),
       endTime: row.end_time,
-      state: row.state, // 1=Active, 2=Ended, 3=Settled
+      state: row.state,
       stateLabel: row.state === 1 ? 'Active' : row.state === 2 ? 'Ended' : 'Settled',
       
       // Bidding stats
@@ -319,7 +344,16 @@ app.get('/analytics/hot-casts', async (c) => {
     };
   });
   
-  return c.json({ hotCasts });
+  const response = { hotCasts };
+  
+  // Cache the response
+  if (c.env.NEYNAR_CACHE) {
+    await c.env.NEYNAR_CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: CACHE_TTL
+    });
+  }
+  
+  return c.json(response);
 });
 
 // Analytics route - Get top bidders
@@ -1177,121 +1211,141 @@ function getNextMilestone(stats) {
 app.get('/analytics/hot-users', async (c) => {
   const limit = parseInt(c.req.query('limit') || '20');
   
+  // KV cache with 4-minute TTL (data updates every 5 minutes)
+  const CACHE_TTL = 240; // 4 minutes
+  const cacheKey = `hot-users:${limit}:${Math.floor(Date.now() / 240000)}`;
+  
+  // Try to get from cache first
+  const cached = await c.env.NEYNAR_CACHE?.get(cacheKey);
+  if (cached) {
+    return c.json(JSON.parse(cached));
+  }
+  
+  // Single optimized query that gets all data at once
   const result = await executeQuery(
     c.env,
-    `WITH auction_revenues AS (
+    `WITH creator_stats AS (
       SELECT 
         a.creator_fid,
-        a.id as auction_id,
-        a.state,
-        CASE 
-          WHEN a.state >= 3 THEN MAX(b.amount)
-          WHEN a.state < 3 THEN MAX(b.amount)
-          ELSE 0
-        END as revenue,
-        COUNT(DISTINCT b.bidder_fid) as unique_bidders,
-        COUNT(b.id) as total_bids
+        COUNT(DISTINCT a.id) as total_auctions,
+        COUNT(DISTINCT CASE WHEN a.state >= 3 THEN a.id END) as settled_auctions,
+        SUM(COALESCE(b.max_bid, 0)) as total_revenue,
+        MAX(b.max_bid) as highest_auction_revenue,
+        AVG(CASE WHEN b.max_bid > 0 THEN b.max_bid END) as avg_auction_revenue,
+        SUM(COALESCE(b.bid_count, 0)) as total_bids_received,
+        array_agg(
+          json_build_object(
+            'cast_hash', a.cast_hash,
+            'end_time', a.end_time,
+            'state', a.state,
+            'revenue', COALESCE(b.max_bid, 0),
+            'bid_count', COALESCE(b.bid_count, 0),
+            'created_at', a.created_at
+          ) ORDER BY a.created_at DESC
+        ) FILTER (WHERE a.created_at >= NOW() - INTERVAL '30 days') as recent_auctions_raw
       FROM auctions a
-      LEFT JOIN bids b ON a.id = b.auction_id
-      GROUP BY a.id, a.creator_fid, a.state
+      LEFT JOIN LATERAL (
+        SELECT 
+          MAX(amount) as max_bid,
+          COUNT(*) as bid_count
+        FROM bids
+        WHERE auction_id = a.id
+      ) b ON true
+      GROUP BY a.creator_fid
+      HAVING SUM(COALESCE(b.max_bid, 0)) > 0
     ),
-    creator_totals AS (
+    top_creators AS (
       SELECT 
-        creator_fid,
-        COUNT(DISTINCT auction_id) as total_auctions,
-        COUNT(DISTINCT CASE WHEN state >= 3 THEN auction_id END) as settled_auctions,
-        SUM(revenue) as total_revenue,
-        SUM(unique_bidders) as total_unique_bidders,
-        SUM(total_bids) as total_bids_received,
-        MAX(revenue) as highest_auction_revenue,
-        AVG(CASE WHEN revenue > 0 THEN revenue END) as avg_auction_revenue
-      FROM auction_revenues
-      GROUP BY creator_fid
-      HAVING SUM(revenue) > 0
+        *,
+        -- Extract unique bidder FIDs from all auctions
+        (SELECT COUNT(DISTINCT bidder_fid) 
+         FROM auctions a2 
+         JOIN bids b2 ON a2.id = b2.auction_id 
+         WHERE a2.creator_fid = creator_stats.creator_fid) as total_unique_simps
+      FROM creator_stats
+      ORDER BY total_revenue DESC
+      LIMIT $1
     )
     SELECT 
-      ct.*,
-      COUNT(DISTINCT b.bidder_fid) as unique_simps
-    FROM creator_totals ct
-    LEFT JOIN auctions a ON ct.creator_fid = a.creator_fid
-    LEFT JOIN bids b ON a.id = b.auction_id
-    GROUP BY ct.creator_fid, ct.total_auctions, ct.settled_auctions, 
-             ct.total_revenue, ct.total_unique_bidders, ct.total_bids_received,
-             ct.highest_auction_revenue, ct.avg_auction_revenue
-    ORDER BY ct.total_revenue DESC
-    LIMIT $1`,
+      creator_fid,
+      total_auctions,
+      settled_auctions,
+      total_revenue,
+      highest_auction_revenue,
+      avg_auction_revenue,
+      total_bids_received,
+      total_unique_simps as unique_simps,
+      -- Only keep top 3 recent auctions
+      (SELECT json_agg(auction) 
+       FROM (
+         SELECT unnest(recent_auctions_raw) as auction
+         LIMIT 3
+       ) t
+      ) as recent_auctions
+    FROM top_creators`,
     [limit]
   );
   
-  // Get recent auctions for each creator
+  // Extract all FIDs and cast hashes for batch fetching
   const creatorFids = result.rows.map(row => row.creator_fid);
+  const allCastHashes = new Set();
   
-  const recentAuctionsResult = await executeQuery(
-    c.env,
-    `WITH recent_auctions AS (
-      SELECT 
-        a.creator_fid,
-        a.cast_hash,
-        a.end_time,
-        a.state,
-        CASE 
-          WHEN a.state >= 3 THEN MAX(b.amount)
-          WHEN a.state < 3 THEN MAX(b.amount)
-          ELSE 0
-        END as revenue,
-        COUNT(b.id) as bid_count,
-        ROW_NUMBER() OVER (PARTITION BY a.creator_fid ORDER BY a.created_at DESC) as rn
-      FROM auctions a
-      LEFT JOIN bids b ON a.id = b.auction_id
-      WHERE a.creator_fid = ANY($1)
-      GROUP BY a.id, a.cast_hash, a.end_time, a.state, a.creator_fid, a.created_at
-    )
-    SELECT * FROM recent_auctions WHERE rn <= 3`,
-    [creatorFids]
-  );
-  
-  // Group recent auctions by creator
-  const recentAuctionsByCreator = {};
-  recentAuctionsResult.rows.forEach(row => {
-    if (!recentAuctionsByCreator[row.creator_fid]) {
-      recentAuctionsByCreator[row.creator_fid] = [];
+  result.rows.forEach(row => {
+    if (row.recent_auctions) {
+      const auctions = typeof row.recent_auctions === 'string' 
+        ? JSON.parse(row.recent_auctions) 
+        : row.recent_auctions;
+      auctions.forEach(auction => {
+        if (auction.cast_hash) allCastHashes.add(auction.cast_hash);
+      });
     }
-    recentAuctionsByCreator[row.creator_fid].push({
-      cast_hash: row.cast_hash,
-      end_time: row.end_time,
-      state: row.state,
-      revenue_cents: usdcToCents(row.revenue),
-      bid_count: parseInt(row.bid_count) || 0
-    });
   });
   
-  // Get creator profiles
-  const creatorProfiles = await c.get('neynarClient').getUsersByFids(creatorFids);
-  
-  // Get cast data for recent auctions
-  const allCastHashes = recentAuctionsResult.rows.map(row => row.cast_hash);
-  const castContent = allCastHashes.length > 0 ? await c.get('neynarClient').getCastsByHashes(allCastHashes) : {};
+  // Parallel API calls for profiles and cast data
+  const [creatorProfiles, castContent] = await Promise.all([
+    creatorFids.length > 0 ? c.get('neynarClient').getUsersByFids(creatorFids) : {},
+    allCastHashes.size > 0 ? c.get('neynarClient').getCastsByHashes([...allCastHashes]) : {}
+  ]);
   
   // Format the response
-  const hotUsers = result.rows.map(row => ({
-    creator_fid: row.creator_fid,
-    profile: creatorProfiles[row.creator_fid] || null,
-    stats: {
-      total_revenue_cents: usdcToCents(row.total_revenue),
-      total_auctions: parseInt(row.total_auctions) || 0,
-      settled_auctions: parseInt(row.settled_auctions) || 0,
-      unique_simps: parseInt(row.unique_simps) || 0,
-      total_bids_received: parseInt(row.total_bids_received) || 0,
-      highest_auction_revenue_cents: usdcToCents(row.highest_auction_revenue),
-      avg_auction_revenue_cents: usdcToCents(row.avg_auction_revenue)
-    },
-    recent_auctions: (recentAuctionsByCreator[row.creator_fid] || []).map(auction => ({
-      ...auction,
-      castData: castContent[auction.cast_hash] || null
-    }))
-  }));
+  const hotUsers = result.rows.map(row => {
+    const recentAuctions = row.recent_auctions 
+      ? (typeof row.recent_auctions === 'string' ? JSON.parse(row.recent_auctions) : row.recent_auctions)
+      : [];
+    
+    return {
+      creator_fid: row.creator_fid,
+      profile: creatorProfiles[row.creator_fid] || null,
+      stats: {
+        total_revenue_cents: usdcToCents(row.total_revenue),
+        total_auctions: parseInt(row.total_auctions) || 0,
+        settled_auctions: parseInt(row.settled_auctions) || 0,
+        unique_simps: parseInt(row.unique_simps) || 0,
+        total_bids_received: parseInt(row.total_bids_received) || 0,
+        highest_auction_revenue_cents: usdcToCents(row.highest_auction_revenue),
+        avg_auction_revenue_cents: usdcToCents(row.avg_auction_revenue)
+      },
+      recent_auctions: recentAuctions.map(auction => ({
+        cast_hash: auction.cast_hash,
+        end_time: auction.end_time,
+        state: auction.state,
+        revenue_cents: usdcToCents(auction.revenue),
+        bid_count: parseInt(auction.bid_count) || 0,
+        castData: castContent[auction.cast_hash] || null
+      }))
+    };
+  });
   
-  return c.json({ hotUsers });
+  const response = { hotUsers };
+  
+  // Cache the response
+  if (c.env.NEYNAR_CACHE) {
+    await c.env.NEYNAR_CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: CACHE_TTL
+    });
+  }
+  
+  return c.json(response);
 });
 
 // Analytics route - Creator stats
@@ -1597,125 +1651,179 @@ app.post('/sync', quickAuthMiddleware, async (c) => {
 app.get('/analytics/hall-of-shame/:fid', async (c) => {
   const fid = parseInt(c.req.param('fid'));
   
-  // Get user profile
+  // KV cache with 4-minute TTL
+  const CACHE_TTL = 240; // 4 minutes  
+  const cacheKey = `hall-of-shame:${fid}:${Math.floor(Date.now() / 240000)}`;
+  
+  // Try to get from cache first
+  const cached = await c.env.NEYNAR_CACHE?.get(cacheKey);
+  if (cached) {
+    return c.json(JSON.parse(cached));
+  }
+  
+  // Get user profile first to check if user exists
   const userProfile = await c.get('neynarClient').getUser(fid);
   
   if (!userProfile) {
     return c.json({ error: 'User not found' }, 404);
   }
   
-  // Get user's overall stats
-  const statsResult = await executeQuery(
+  // Single optimized query that gets all data at once
+  const result = await executeQuery(
     c.env,
-    `WITH user_max_bids AS (
+    `WITH user_bids AS (
       SELECT 
-        auction_id,
-        MAX(amount) as max_amount
-      FROM bids
-      WHERE bidder_fid = $1
-      GROUP BY auction_id
-    )
-    SELECT 
-      COUNT(DISTINCT b.auction_id) as auctions_participated,
-      COUNT(*) as total_bids,
-      (SELECT SUM(max_amount) FROM user_max_bids) as total_volume,
-      MAX(b.amount) as highest_bid,
-      MIN(b.timestamp) as first_bid_date,
-      MAX(b.timestamp) as last_bid_date
-    FROM bids b
-    WHERE b.bidder_fid = $1`,
-    [fid]
-  );
-  
-  // Get user's rank
-  const rankResult = await executeQuery(
-    c.env,
-    `WITH max_bids_per_user_auction AS (
-      SELECT 
-        bidder_fid,
-        auction_id,
-        MAX(amount) as max_bid_amount,
-        COUNT(*) as bid_count_per_auction
-      FROM bids
-      GROUP BY bidder_fid, auction_id
-    ),
-    user_ranks AS (
-      SELECT 
-        bidder_fid,
-        SUM(bid_count_per_auction) as total_bids,
-        RANK() OVER (ORDER BY SUM(bid_count_per_auction) DESC) as bid_rank,
-        RANK() OVER (ORDER BY SUM(max_bid_amount) DESC) as volume_rank
-      FROM max_bids_per_user_auction
-      GROUP BY bidder_fid
-    )
-    SELECT * FROM user_ranks WHERE bidder_fid = $1`,
-    [fid]
-  );
-  
-  // Get top 5 creators they simp for
-  const topCreatorsResult = await executeQuery(
-    c.env,
-    `WITH user_bids_per_auction AS (
-      SELECT 
+        b.id,
         b.auction_id,
+        b.bidder_fid,
+        b.amount,
+        b.timestamp,
+        b.transaction_hash,
+        b.block_number,
+        b.authorizer,
         a.creator_fid,
-        MAX(b.amount) as max_amount,
-        COUNT(b.id) as bid_count
+        a.cast_hash as auction_cast_hash,
+        a.end_time as auction_end_time,
+        a.state as auction_state
       FROM bids b
       INNER JOIN auctions a ON b.auction_id = a.id
       WHERE b.bidder_fid = $1
-      GROUP BY b.auction_id, a.creator_fid
+    ),
+    user_stats AS (
+      SELECT 
+        COUNT(DISTINCT auction_id) as auctions_participated,
+        COUNT(*) as total_bids,
+        SUM(max_bid_per_auction) as total_volume,
+        MAX(amount) as highest_bid,
+        MIN(timestamp) as first_bid_date,
+        MAX(timestamp) as last_bid_date
+      FROM (
+        SELECT 
+          auction_id,
+          MAX(amount) as max_bid_per_auction,
+          MAX(amount) as amount,
+          MIN(timestamp) as timestamp
+        FROM user_bids
+        GROUP BY auction_id
+      ) user_max_bids
+    ),
+    all_user_ranks AS (
+      SELECT 
+        bidder_fid,
+        SUM(bid_count) as total_bids,
+        SUM(max_amount) as total_volume,
+        RANK() OVER (ORDER BY SUM(bid_count) DESC) as bid_rank,
+        RANK() OVER (ORDER BY SUM(max_amount) DESC) as volume_rank
+      FROM (
+        SELECT 
+          bidder_fid,
+          auction_id,
+          MAX(amount) as max_amount,
+          COUNT(*) as bid_count
+        FROM bids
+        GROUP BY bidder_fid, auction_id
+      ) bidder_stats
+      GROUP BY bidder_fid
+    ),
+    user_rank AS (
+      SELECT * FROM all_user_ranks WHERE bidder_fid = $1
+    ),
+    top_creators AS (
+      SELECT 
+        creator_fid,
+        COUNT(DISTINCT auction_id) as auctions_bid_on,
+        SUM(max_amount) as total_spent,
+        MAX(max_amount) as highest_bid,
+        SUM(bid_count) as total_bids_placed,
+        ROW_NUMBER() OVER (ORDER BY COUNT(DISTINCT auction_id) DESC, SUM(max_amount) DESC) as rn
+      FROM (
+        SELECT 
+          creator_fid,
+          auction_id,
+          MAX(amount) as max_amount,
+          COUNT(*) as bid_count
+        FROM user_bids
+        GROUP BY creator_fid, auction_id
+      ) creator_stats
+      GROUP BY creator_fid
+    ),
+    most_bid_casts AS (
+      SELECT 
+        auction_id,
+        auction_cast_hash,
+        creator_fid,
+        auction_end_time,
+        auction_state,
+        COUNT(*) as user_bid_count,
+        MAX(amount) as user_highest_bid,
+        MIN(timestamp) as first_bid_time,
+        MAX(timestamp) as last_bid_time,
+        ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, MAX(amount) DESC) as rn
+      FROM user_bids
+      GROUP BY auction_id, auction_cast_hash, creator_fid, auction_end_time, auction_state
+    ),
+    auction_totals AS (
+      SELECT 
+        a.id as auction_id,
+        MAX(b.amount) as auction_highest_bid,
+        COUNT(b.id) as total_auction_bids
+      FROM auctions a
+      LEFT JOIN bids b ON a.id = b.auction_id
+      WHERE a.id IN (SELECT DISTINCT auction_id FROM user_bids)
+      GROUP BY a.id
     )
     SELECT 
-      creator_fid,
-      COUNT(DISTINCT auction_id) as auctions_bid_on,
-      SUM(max_amount) as total_spent,
-      MAX(max_amount) as highest_bid,
-      SUM(bid_count) as total_bids_placed
-    FROM user_bids_per_auction
-    GROUP BY creator_fid
-    ORDER BY auctions_bid_on DESC, total_spent DESC
-    LIMIT 10`,
+      -- User stats
+      (SELECT row_to_json(user_stats.*) FROM user_stats) as stats,
+      -- User rank
+      (SELECT row_to_json(user_rank.*) FROM user_rank) as rank,
+      -- Top creators (limit 10)
+      (SELECT json_agg(row_to_json(tc.*) ORDER BY tc.rn) 
+       FROM top_creators tc 
+       WHERE tc.rn <= 10) as top_creators,
+      -- Most bid casts with auction totals (limit 5)
+      (SELECT json_agg(
+         json_build_object(
+           'auction_id', mbc.auction_id,
+           'cast_hash', mbc.auction_cast_hash,
+           'creator_fid', mbc.creator_fid,
+           'auction_end_time', mbc.auction_end_time,
+           'auction_state', mbc.auction_state,
+           'user_bid_count', mbc.user_bid_count,
+           'user_highest_bid', mbc.user_highest_bid,
+           'first_bid_time', mbc.first_bid_time,
+           'last_bid_time', mbc.last_bid_time,
+           'auction_highest_bid', at.auction_highest_bid,
+           'total_auction_bids', at.total_auction_bids
+         ) ORDER BY mbc.rn
+       )
+       FROM most_bid_casts mbc
+       LEFT JOIN auction_totals at ON mbc.auction_id = at.auction_id
+       WHERE mbc.rn <= 5) as most_bid_casts`,
     [fid]
   );
   
-  // Get casts they've bid on most times
-  const mostBidCastsResult = await executeQuery(
-    c.env,
-    `SELECT 
-      a.id as auction_id,
-      a.cast_hash,
-      a.creator_fid,
-      a.end_time,
-      a.state,
-      COUNT(b.id) as user_bid_count,
-      MAX(b.amount) as user_highest_bid,
-      MIN(b.timestamp) as first_bid_time,
-      MAX(b.timestamp) as last_bid_time,
-      (SELECT MAX(amount) FROM bids WHERE auction_id = a.id) as auction_highest_bid,
-      (SELECT COUNT(*) FROM bids WHERE auction_id = a.id) as total_auction_bids
-    FROM auctions a
-    INNER JOIN bids b ON a.id = b.auction_id AND b.bidder_fid = $1
-    GROUP BY a.id, a.cast_hash, a.creator_fid, a.end_time, a.state
-    ORDER BY user_bid_count DESC, user_highest_bid DESC
-    LIMIT 5`,
-    [fid]
-  );
+  // Parse the results
+  const data = result.rows[0];
+  const stats = data.stats || {};
+  const rank = data.rank || null;
+  const topCreators = data.top_creators || [];
+  const mostBidCasts = data.most_bid_casts || [];
   
-  // Get creator profiles and cast data
-  const creatorFids = [...new Set([
-    ...topCreatorsResult.rows.map(r => r.creator_fid),
-    ...mostBidCastsResult.rows.map(r => r.creator_fid)
-  ])];
-  const castHashes = mostBidCastsResult.rows.map(r => r.cast_hash);
+  // Extract all FIDs and cast hashes for batch fetching
+  const creatorFids = new Set();
+  topCreators.forEach(c => creatorFids.add(c.creator_fid));
+  mostBidCasts.forEach(c => creatorFids.add(c.creator_fid));
   
+  const castHashes = mostBidCasts.map(c => c.cast_hash);
+  
+  // Parallel API calls
   const [creatorProfiles, castData] = await Promise.all([
-    creatorFids.length > 0 ? c.get('neynarClient').getUsersByFids(creatorFids) : {},
+    creatorFids.size > 0 ? c.get('neynarClient').getUsersByFids([...creatorFids]) : {},
     castHashes.length > 0 ? c.get('neynarClient').getCastsByHashes(castHashes) : {}
   ]);
   
   // Calculate simp level
-  const stats = statsResult.rows[0];
   const totalBids = parseInt(stats.total_bids) || 0;
   let level, emoji;
   
@@ -1749,9 +1857,7 @@ app.get('/analytics/hall-of-shame/:fid', async (c) => {
   }
   
   // Format response
-  const rank = rankResult.rows[0];
-  
-  return c.json({
+  const response = {
     user: {
       fid,
       profile: userProfile,
@@ -1771,7 +1877,7 @@ app.get('/analytics/hall-of-shame/:fid', async (c) => {
       bidRank: rank ? parseInt(rank.bid_rank) : null,
       volumeRank: rank ? parseInt(rank.volume_rank) : null
     },
-    topCreators: topCreatorsResult.rows.map(row => ({
+    topCreators: topCreators.map(row => ({
       creatorFid: row.creator_fid,
       auctionsBidOn: parseInt(row.auctions_bid_on) || 0,
       totalSpentCents: usdcToCents(row.total_spent),
@@ -1779,12 +1885,12 @@ app.get('/analytics/hall-of-shame/:fid', async (c) => {
       totalBidsPlaced: parseInt(row.total_bids_placed) || 0,
       profile: creatorProfiles[row.creator_fid] || null
     })),
-    mostBidCasts: mostBidCastsResult.rows.map(row => ({
+    mostBidCasts: mostBidCasts.map(row => ({
       auctionId: row.auction_id,
       castHash: row.cast_hash,
       creatorFid: row.creator_fid,
-      endTime: row.end_time,
-      state: row.state,
+      endTime: row.auction_end_time,
+      state: row.auction_state,
       userBidCount: parseInt(row.user_bid_count) || 0,
       userHighestBidCents: usdcToCents(row.user_highest_bid),
       firstBidTime: row.first_bid_time,
@@ -1794,7 +1900,16 @@ app.get('/analytics/hall-of-shame/:fid', async (c) => {
       creatorProfile: creatorProfiles[row.creator_fid] || null,
       castData: castData[row.cast_hash] || null
     }))
-  });
+  };
+  
+  // Cache the response
+  if (c.env.NEYNAR_CACHE) {
+    await c.env.NEYNAR_CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: CACHE_TTL
+    });
+  }
+  
+  return c.json(response);
 });
 
 // Export for Cloudflare Workers

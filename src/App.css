@@ -121,7 +121,7 @@ body {
 .tabloid-content {
   flex: 1;
   padding: 1rem;
-  padding-bottom: 5rem; /* Space for bottom nav */
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom)); /* Space for bottom nav + safe area */
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -1501,6 +1501,7 @@ body {
   display: flex;
   justify-content: space-around;
   padding: 0.5rem 0;
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
   border-top: 2px solid var(--black);
   z-index: 1000;
 }
@@ -1832,12 +1833,13 @@ body {
 .profile-modal {
   background: var(--white);
   border: 2px solid var(--black);
-  max-width: 500px;
+  max-width: 600px;
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
   position: relative;
   padding: 2rem 1.5rem;
+  padding-bottom: calc(2rem + env(safe-area-inset-bottom));
 }
 
 .close-btn {
@@ -1893,6 +1895,21 @@ body {
   color: var(--gray-dark);
   margin-top: 0.5rem;
   line-height: 1.4;
+}
+
+.profile-social-stats {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  align-items: center;
+  font-size: 0.9rem;
+  color: var(--gray-medium);
+}
+
+.power-badge {
+  color: var(--black);
+  font-weight: bold;
 }
 
 .profile-stats-grid {
@@ -1971,6 +1988,61 @@ body {
   margin-bottom: 1rem;
   border-bottom: 2px solid var(--black);
   padding-bottom: 0.5rem;
+}
+
+/* Profile Timeline */
+.timeline-section {
+  background: var(--off-white);
+  padding: 1rem;
+  border: 1px solid var(--gray-lighter);
+  margin-bottom: 1.5rem;
+}
+
+.timeline-dates {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.timeline-item {
+  flex: 1;
+  min-width: 120px;
+}
+
+.timeline-label {
+  font-family: var(--font-subhead);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  color: var(--gray-medium);
+  margin-bottom: 0.25rem;
+}
+
+.timeline-date {
+  font-family: var(--font-stats);
+  font-size: 1.1rem;
+  color: var(--black);
+}
+
+/* Spending Analysis */
+.spending-percentile {
+  text-align: center;
+  padding: 1rem;
+  background: var(--black);
+  color: var(--white);
+  margin-bottom: 1rem;
+}
+
+.percentile-text {
+  font-family: var(--font-headline);
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.percentile-subtitle {
+  font-family: var(--font-subhead);
+  font-size: 0.9rem;
+  opacity: 0.8;
 }
 
 .fans-list {
@@ -2138,4 +2210,78 @@ body {
   .auction-item {
     color: var(--gray-lighter);
   }
+}
+/* Enhanced Profile Modal Styles */
+.bid-amounts-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  font-family: var(--font-stats);
+  font-size: 0.9rem;
+}
+
+.user-max-bid {
+  color: var(--gray-dark);
+}
+
+.vs-indicator {
+  color: var(--gray-medium);
+  font-size: 0.8rem;
+}
+
+.auction-max-bid {
+  color: var(--black);
+  font-weight: bold;
+}
+
+.bid-status {
+  font-family: var(--font-subhead);
+  font-size: 0.85rem;
+  font-weight: bold;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+}
+
+.bid-status.winning {
+  background: #FFD700;
+  color: var(--black);
+}
+
+.bid-status.losing {
+  background: var(--gray-lighter);
+  color: var(--gray-dark);
+}
+
+.quoted-cast-preview {
+  background: var(--white);
+  border-left: 3px solid var(--black);
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.quoted-cast-author {
+  font-size: 0.8rem;
+  color: var(--gray-medium);
+  margin-bottom: 0.25rem;
+}
+
+.quoted-cast-text {
+  font-size: 0.85rem;
+  color: var(--gray-dark);
+}
+
+.cast-bid-times {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--gray-medium);
+  flex-wrap: wrap;
+}
+
+.first-bid, .last-bid {
+  flex: 1;
+  min-width: 120px;
 }

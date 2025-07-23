@@ -7,15 +7,19 @@ export async function syncEvents(env) {
   
   // Get the last synced block
   const lastSyncedBlock = await getLastSyncedBlock(env);
+  console.log(`Last synced block from DB: ${lastSyncedBlock}`);
+  
   const currentBlock = await client.getBlockNumber();
+  console.log(`Current blockchain block: ${currentBlock}`);
   
   // Don't sync if we're already up to date
   if (lastSyncedBlock >= currentBlock) {
+    console.log('Already up to date, no sync needed');
     return { eventsProcessed: 0, lastBlock: currentBlock };
   }
   
   // Sync in batches to avoid rate limits
-  const batchSize = 1000n;
+  const batchSize = 500n; // Reduced from 1000n to match backfill script
   let fromBlock = lastSyncedBlock + 1n;
   let eventsProcessed = 0;
   
@@ -25,6 +29,7 @@ export async function syncEvents(env) {
     console.log(`Syncing blocks ${fromBlock} to ${toBlock}`);
     
     const events = await getContractEvents(client, fromBlock, toBlock);
+    console.log(`Found ${events.length} events in this batch`);
     
     for (const event of events) {
       if (event.eventName === 'AuctionStarted') {
