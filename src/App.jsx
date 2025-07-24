@@ -315,6 +315,10 @@ function App() {
                 {index === 0 && (
                   <div className="exclusive-badge">EXCLUSIVE!</div>
                 )}
+                
+                <button className="view-details-btn">
+                  VIEW DETAILS →
+                </button>
               </div>
             )
           })}
