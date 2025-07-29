@@ -2600,6 +2600,7 @@ body {
 
 .creator-details h4 {
   font-family: var(--font-headline);
+  color: var(--black);
   font-size: 1.3rem;
   margin-bottom: 0.2rem;
 }
