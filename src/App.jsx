@@ -442,7 +442,7 @@ function App() {
 
                   <div className="revenue-stats">
                     <div className="main-stat">
-                      <span className="stat-label">TOTAL EARNED</span>
+                      <span className="stat-label">TOTAL FROM AUCTIONS</span>
                       <span className="revenue-amount">{formatUSDC(user.stats?.total_revenue_cents || 0)}</span>
                     </div>
                     
