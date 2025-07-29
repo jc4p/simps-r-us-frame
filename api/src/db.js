@@ -41,3 +41,19 @@ export async function updateLastSyncedBlock(env, blockNumber) {
     [blockNumber.toString()]
   );
 }
+
+export async function getLastNFTSyncedBlock(env) {
+  const result = await executeQuery(
+    env,
+    'SELECT last_block_number FROM nft_sync_status WHERE id = 1'
+  );
+  return BigInt(result.rows[0]?.last_block_number || 0);
+}
+
+export async function updateLastNFTSyncedBlock(env, blockNumber) {
+  await executeQuery(
+    env,
+    'UPDATE nft_sync_status SET last_block_number = $1, last_sync_time = CURRENT_TIMESTAMP WHERE id = 1',
+    [blockNumber.toString()]
+  );
+}

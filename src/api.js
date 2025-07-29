@@ -23,15 +23,15 @@ export const api = {
     fetchAPI(`/analytics/top-bidders?limit=${limit}`),
   
   // Get top simps by time period
-  getTopSimpsByTimeframe: (period = 'all-time', limit = 20) => 
+  getTopSimpsByTimeframe: (period = 'all-time', limit = 30) => 
     fetchAPI(`/analytics/top-bidders/timeframe?period=${period}&limit=${limit}`),
   
   // Get hot casts (most simped on)
-  getHotCasts: (limit = 10) => 
+  getHotCasts: (limit = 20) => 
     fetchAPI(`/analytics/hot-casts?limit=${limit}`),
   
   // Get hot users (creators with most revenue)
-  getHotUsers: (limit = 20) => 
+  getHotUsers: (limit = 30) => 
     fetchAPI(`/analytics/hot-users?limit=${limit}`),
   
   // Get global statistics
@@ -69,4 +69,16 @@ export const api = {
   // Get hall of shame profile (consolidated endpoint)
   getHallOfShameProfile: (fid) => 
     fetchAPI(`/analytics/hall-of-shame/${fid}`),
+  
+  // Get top winning casts (highest winning bids)
+  getTopWinningCasts: (limit = 30, offset = 0) => 
+    fetchAPI(`/analytics/top-winning-casts?limit=${limit}&offset=${offset}`),
+  
+  // Get top collectors (most active collectors)
+  getTopCollectors: (limit = 30) => 
+    fetchAPI(`/analytics/top-collectors?limit=${limit}`),
+  
+  // Get top collected creators (most collected casters)
+  getTopCollectedCreators: (limit = 30) => 
+    fetchAPI(`/analytics/top-collected-creators?limit=${limit}`),
 };

@@ -2,6 +2,7 @@ import { createPublicClient, http, parseAbiItem, decodeEventLog } from 'viem';
 import { base } from 'viem/chains';
 
 export const CONTRACT_ADDRESS = '0xFC52e33F48Dd3fcd5EE428c160722efda645D74A';
+export const NFT_CONTRACT_ADDRESS = '0xc011Ec7Ca575D4f0a2eDA595107aB104c7Af7A09';
 
 // ABI for the events we're interested in
 export const AUCTION_STARTED_ABI = parseAbiItem(
@@ -23,6 +24,11 @@ export const AUCTION_SETTLED_ABI = parseAbiItem(
 
 export const AUCTION_CANCELLED_ABI = parseAbiItem(
   'event AuctionCancelled(bytes32 indexed castHash, address indexed refundedBidder, uint96 indexed refundedBidderFid, address authorizer)'
+);
+
+// NFT Transfer event ABI - covers both transferFrom and safeTransferFrom
+export const TRANSFER_ABI = parseAbiItem(
+  'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
 );
 
 // Partial ABI for reading auction data - manually define the structure
@@ -66,7 +72,7 @@ export function createViemClient(rpcUrl) {
 export async function getContractEvents(client, fromBlock, toBlock) {
   const logs = await client.getLogs({
     address: CONTRACT_ADDRESS,
-    events: [AUCTION_STARTED_ABI, BID_PLACED_ABI],
+    events: [AUCTION_STARTED_ABI, BID_PLACED_ABI, AUCTION_SETTLED_ABI],
     fromBlock,
     toBlock,
   });
@@ -74,7 +80,7 @@ export async function getContractEvents(client, fromBlock, toBlock) {
   return logs.map(log => {
     try {
       const decoded = decodeEventLog({
-        abi: [AUCTION_STARTED_ABI, BID_PLACED_ABI],
+        abi: [AUCTION_STARTED_ABI, BID_PLACED_ABI, AUCTION_SETTLED_ABI],
         data: log.data,
         topics: log.topics,
       });
@@ -145,6 +151,56 @@ export function parseBidPlacedEvent(event) {
     bidderFid: Number(event.args.bidderFid),
     amount: event.args.amount.toString(),
     authorizer: event.args.authorizer,
+    blockNumber: event.blockNumber,
+    transactionHash: event.transactionHash,
+  };
+}
+
+export async function getNFTTransferEvents(client, fromBlock, toBlock) {
+  const logs = await client.getLogs({
+    address: NFT_CONTRACT_ADDRESS,
+    events: [TRANSFER_ABI],
+    fromBlock,
+    toBlock,
+  });
+
+  return logs.map(log => {
+    try {
+      const decoded = decodeEventLog({
+        abi: [TRANSFER_ABI],
+        data: log.data,
+        topics: log.topics,
+      });
+
+      return {
+        ...decoded,
+        blockNumber: log.blockNumber,
+        transactionHash: log.transactionHash,
+        logIndex: log.logIndex,
+      };
+    } catch (error) {
+      console.error('Error decoding transfer log:', error);
+      return null;
+    }
+  }).filter(Boolean);
+}
+
+export function parseTransferEvent(event) {
+  return {
+    fromAddress: event.args.from,
+    toAddress: event.args.to,
+    tokenId: event.args.tokenId.toString(),
+    blockNumber: event.blockNumber,
+    transactionHash: event.transactionHash,
+  };
+}
+
+export function parseAuctionSettledEvent(event) {
+  return {
+    castHash: event.args.castHash,
+    winner: event.args.winner,
+    winnerFid: Number(event.args.winnerFid),
+    amount: event.args.amount.toString(),
     blockNumber: event.blockNumber,
     transactionHash: event.transactionHash,
   };

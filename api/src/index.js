@@ -1647,6 +1647,545 @@ app.post('/sync', quickAuthMiddleware, async (c) => {
   }
 });
 
+// Analytics route - Top Winning Casts (highest winning bids)
+app.get('/analytics/top-winning-casts', async (c) => {
+  const limit = parseInt(c.req.query('limit') || '20');
+  const offset = parseInt(c.req.query('offset') || '0');
+  
+  // KV cache with 4-minute TTL
+  const CACHE_TTL = 240; // 4 minutes
+  const cacheKey = `top-winning-casts:${limit}:${offset}:${Math.floor(Date.now() / 240000)}`;
+  
+  // Try to get from cache first
+  const cached = await c.env.NEYNAR_CACHE?.get(cacheKey);
+  if (cached) {
+    return c.json(JSON.parse(cached));
+  }
+  
+  // Get settled auctions with highest winning bids
+  const result = await executeQuery(
+    c.env,
+    `SELECT 
+      a.id,
+      a.cast_hash,
+      a.creator_address,
+      a.creator_fid,
+      a.winner_address,
+      a.winner_fid,
+      a.winning_bid,
+      a.min_bid,
+      a.end_time,
+      a.created_at,
+      a.transaction_hash,
+      COUNT(b.id) as total_bids,
+      COUNT(DISTINCT b.bidder_fid) as unique_bidders
+    FROM auctions a
+    LEFT JOIN bids b ON a.id = b.auction_id
+    WHERE a.state = 3 AND a.winner_fid IS NOT NULL
+    GROUP BY a.id
+    ORDER BY a.winning_bid DESC NULLS LAST
+    LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  );
+  
+  // Get unique FIDs for enrichment
+  const creatorFids = new Set();
+  const winnerFids = new Set();
+  const castHashes = [];
+  
+  result.rows.forEach(row => {
+    creatorFids.add(row.creator_fid);
+    if (row.winner_fid) winnerFids.add(row.winner_fid);
+    castHashes.push(row.cast_hash);
+  });
+  
+  const allFids = [...new Set([...creatorFids, ...winnerFids])];
+  
+  // Parallel API calls
+  const [users, castContent] = await Promise.all([
+    allFids.length > 0 ? c.get('neynarClient').getUsersByFids(allFids) : {},
+    castHashes.length > 0 ? c.get('neynarClient').getCastsByHashes(castHashes) : {}
+  ]);
+  
+  const casts = result.rows.map(row => ({
+    id: row.id,
+    castHash: row.cast_hash,
+    creatorAddress: row.creator_address,
+    creatorFid: row.creator_fid,
+    creatorProfile: users[row.creator_fid] || null,
+    winnerAddress: row.winner_address,
+    winnerFid: row.winner_fid,
+    winnerProfile: users[row.winner_fid] || null,
+    winningBidCents: usdcToCents(row.winning_bid),
+    minBidCents: usdcToCents(row.min_bid),
+    totalBids: parseInt(row.total_bids) || 0,
+    uniqueBidders: parseInt(row.unique_bidders) || 0,
+    endTime: row.end_time,
+    createdAt: row.created_at,
+    transactionHash: row.transaction_hash,
+    castData: castContent[row.cast_hash] || null
+  }));
+  
+  // Get total count
+  const countResult = await executeQuery(
+    c.env,
+    'SELECT COUNT(*) as total FROM auctions WHERE state = 3 AND winner_fid IS NOT NULL'
+  );
+  
+  const response = {
+    casts,
+    pagination: {
+      total: parseInt(countResult.rows[0].total) || 0,
+      limit,
+      offset,
+      hasMore: offset + limit < parseInt(countResult.rows[0].total)
+    }
+  };
+  
+  // Cache the response
+  if (c.env.NEYNAR_CACHE) {
+    await c.env.NEYNAR_CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: CACHE_TTL
+    });
+  }
+  
+  return c.json(response);
+});
+
+// Analytics route - Top Collectors (who collected most casts)
+app.get('/analytics/top-collectors', async (c) => {
+  const limit = parseInt(c.req.query('limit') || '20');
+  
+  // KV cache with 4-minute TTL
+  const CACHE_TTL = 240; // 4 minutes
+  const cacheKey = `top-collectors:${limit}:${Math.floor(Date.now() / 240000)}`;
+  
+  // Try to get from cache first
+  const cached = await c.env.NEYNAR_CACHE?.get(cacheKey);
+  if (cached) {
+    return c.json(JSON.parse(cached));
+  }
+  
+  // Get top collectors with comprehensive stats
+  const result = await executeQuery(
+    c.env,
+    `WITH collector_base_stats AS (
+      SELECT 
+        a.winner_fid as collector_fid,
+        COUNT(DISTINCT a.id) as casts_collected,
+        SUM(a.winning_bid) as total_spent,
+        AVG(a.winning_bid) as avg_price,
+        MAX(a.winning_bid) as highest_price,
+        MIN(a.winning_bid) as lowest_price
+      FROM auctions a
+      WHERE a.state = 3 AND a.winner_fid IS NOT NULL
+      GROUP BY a.winner_fid
+    ),
+    recent_collections AS (
+      SELECT 
+        a.winner_fid as collector_fid,
+        json_agg(
+          json_build_object(
+            'cast_hash', a.cast_hash,
+            'creator_fid', a.creator_fid,
+            'winning_bid', a.winning_bid,
+            'end_time', a.end_time,
+            'created_at', a.created_at
+          ) ORDER BY a.winning_bid DESC
+        ) as recent_collections
+      FROM auctions a
+      WHERE a.state = 3 
+        AND a.winner_fid IS NOT NULL
+        AND a.created_at >= NOW() - INTERVAL '30 days'
+      GROUP BY a.winner_fid
+    ),
+    top_creators_per_collector AS (
+      SELECT 
+        a.winner_fid as collector_fid,
+        a.creator_fid,
+        COUNT(*) as casts_from_creator,
+        SUM(a.winning_bid) as spent_on_creator,
+        ROW_NUMBER() OVER (PARTITION BY a.winner_fid ORDER BY COUNT(*) DESC, SUM(a.winning_bid) DESC) as rn
+      FROM auctions a
+      WHERE a.state = 3 AND a.winner_fid IS NOT NULL
+      GROUP BY a.winner_fid, a.creator_fid
+    ),
+    aggregated_top_creators AS (
+      SELECT 
+        collector_fid,
+        json_agg(
+          json_build_object(
+            'creator_fid', creator_fid,
+            'casts_from_creator', casts_from_creator,
+            'spent_on_creator', spent_on_creator
+          ) ORDER BY rn
+        ) FILTER (WHERE rn <= 3) as top_creators
+      FROM top_creators_per_collector
+      GROUP BY collector_fid
+    )
+    SELECT 
+      cs.collector_fid,
+      cs.casts_collected,
+      cs.total_spent,
+      cs.avg_price,
+      cs.highest_price,
+      cs.lowest_price,
+      -- Only keep top 5 recent collections
+      (SELECT json_agg(elem) 
+       FROM (
+         SELECT json_array_elements(rc.recent_collections) as elem
+         LIMIT 5
+       ) t
+      ) as recent_collections,
+      atc.top_creators
+    FROM collector_base_stats cs
+    LEFT JOIN recent_collections rc ON cs.collector_fid = rc.collector_fid
+    LEFT JOIN aggregated_top_creators atc ON cs.collector_fid = atc.collector_fid
+    ORDER BY cs.casts_collected DESC, cs.total_spent DESC
+    LIMIT $1`,
+    [limit]
+  );
+  
+  // Extract all FIDs and cast hashes for batch fetching
+  const collectorFids = new Set();
+  const creatorFids = new Set();
+  const castHashes = new Set();
+  
+  result.rows.forEach(row => {
+    collectorFids.add(row.collector_fid);
+    
+    // Extract from recent collections
+    if (row.recent_collections) {
+      const collections = typeof row.recent_collections === 'string' 
+        ? JSON.parse(row.recent_collections) 
+        : row.recent_collections;
+      collections?.forEach(col => {
+        creatorFids.add(col.creator_fid);
+        castHashes.add(col.cast_hash);
+      });
+    }
+    
+    // Extract from top creators
+    if (row.top_creators) {
+      const creators = typeof row.top_creators === 'string'
+        ? JSON.parse(row.top_creators)
+        : row.top_creators;
+      creators?.forEach(creator => {
+        creatorFids.add(creator.creator_fid);
+      });
+    }
+  });
+  
+  const allFids = [...new Set([...collectorFids, ...creatorFids])];
+  
+  // Parallel API calls
+  const [users, castContent] = await Promise.all([
+    allFids.length > 0 ? c.get('neynarClient').getUsersByFids(allFids) : {},
+    castHashes.size > 0 ? c.get('neynarClient').getCastsByHashes([...castHashes]) : {}
+  ]);
+  
+  // Format response
+  const collectors = result.rows.map(row => {
+    const recentCollections = row.recent_collections 
+      ? (typeof row.recent_collections === 'string' ? JSON.parse(row.recent_collections) : row.recent_collections)
+      : [];
+    
+    const topCreators = row.top_creators
+      ? (typeof row.top_creators === 'string' ? JSON.parse(row.top_creators) : row.top_creators)
+      : [];
+    
+    return {
+      collectorFid: row.collector_fid,
+      collectorProfile: users[row.collector_fid] || null,
+      stats: {
+        castsCollected: parseInt(row.casts_collected) || 0,
+        totalSpentCents: usdcToCents(row.total_spent),
+        avgPriceCents: usdcToCents(row.avg_price),
+        highestPriceCents: usdcToCents(row.highest_price),
+        lowestPriceCents: usdcToCents(row.lowest_price)
+      },
+      recentCollections: recentCollections.map(col => ({
+        castHash: col.cast_hash,
+        creatorFid: col.creator_fid,
+        creatorProfile: users[col.creator_fid] || null,
+        winningBidCents: usdcToCents(col.winning_bid),
+        endTime: col.end_time,
+        createdAt: col.created_at,
+        castData: castContent[col.cast_hash] || null
+      })),
+      topCreatorsCollected: topCreators.map(creator => ({
+        creatorFid: creator.creator_fid,
+        creatorProfile: users[creator.creator_fid] || null,
+        castsFromCreator: parseInt(creator.casts_from_creator) || 0,
+        spentOnCreatorCents: usdcToCents(creator.spent_on_creator)
+      }))
+    };
+  });
+  
+  const response = { collectors };
+  
+  // Cache the response
+  if (c.env.NEYNAR_CACHE) {
+    await c.env.NEYNAR_CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: CACHE_TTL
+    });
+  }
+  
+  return c.json(response);
+});
+
+// Analytics route - Top Collected Creators (whose casts get collected most)
+app.get('/analytics/top-collected-creators', async (c) => {
+  const limit = parseInt(c.req.query('limit') || '20');
+  
+  // KV cache with 4-minute TTL
+  const CACHE_TTL = 240; // 4 minutes
+  const cacheKey = `top-collected-creators:${limit}:${Math.floor(Date.now() / 240000)}`;
+  
+  // Try to get from cache first
+  const cached = await c.env.NEYNAR_CACHE?.get(cacheKey);
+  if (cached) {
+    return c.json(JSON.parse(cached));
+  }
+  
+  // Get creators whose casts have been collected most
+  const result = await executeQuery(
+    c.env,
+    `WITH creator_base_stats AS (
+      SELECT 
+        a.creator_fid,
+        COUNT(DISTINCT a.id) as casts_collected,
+        SUM(a.winning_bid) as total_revenue,
+        AVG(a.winning_bid) as avg_price,
+        MAX(a.winning_bid) as highest_price,
+        MIN(a.winning_bid) as lowest_price,
+        COUNT(DISTINCT a.winner_fid) as unique_collectors
+      FROM auctions a
+      WHERE a.state = 3 AND a.winner_fid IS NOT NULL
+      GROUP BY a.creator_fid
+    ),
+    recent_collected_casts AS (
+      SELECT 
+        a.creator_fid,
+        json_agg(
+          json_build_object(
+            'cast_hash', a.cast_hash,
+            'winner_fid', a.winner_fid,
+            'winning_bid', a.winning_bid,
+            'end_time', a.end_time,
+            'created_at', a.created_at
+          ) ORDER BY a.winning_bid DESC
+        ) as recent_collected
+      FROM auctions a
+      WHERE a.state = 3 
+        AND a.winner_fid IS NOT NULL
+        AND a.created_at >= NOW() - INTERVAL '30 days'
+      GROUP BY a.creator_fid
+    ),
+    top_collectors_per_creator AS (
+      SELECT 
+        a.creator_fid,
+        a.winner_fid as collector_fid,
+        COUNT(*) as times_collected,
+        SUM(a.winning_bid) as revenue_from_collector,
+        ROW_NUMBER() OVER (PARTITION BY a.creator_fid ORDER BY COUNT(*) DESC, SUM(a.winning_bid) DESC) as rn
+      FROM auctions a
+      WHERE a.state = 3 AND a.winner_fid IS NOT NULL
+      GROUP BY a.creator_fid, a.winner_fid
+    ),
+    aggregated_top_collectors AS (
+      SELECT 
+        creator_fid,
+        json_agg(
+          json_build_object(
+            'collector_fid', collector_fid,
+            'times_collected', times_collected,
+            'revenue_from_collector', revenue_from_collector
+          ) ORDER BY rn
+        ) FILTER (WHERE rn <= 3) as top_collectors
+      FROM top_collectors_per_creator
+      GROUP BY creator_fid
+    )
+    SELECT 
+      cs.creator_fid,
+      cs.casts_collected,
+      cs.total_revenue,
+      cs.avg_price,
+      cs.highest_price,
+      cs.lowest_price,
+      cs.unique_collectors,
+      -- Only keep top 5 recent collected casts
+      (SELECT json_agg(elem) 
+       FROM (
+         SELECT json_array_elements(rc.recent_collected) as elem
+         LIMIT 5
+       ) t
+      ) as recent_collected,
+      atc.top_collectors
+    FROM creator_base_stats cs
+    LEFT JOIN recent_collected_casts rc ON cs.creator_fid = rc.creator_fid
+    LEFT JOIN aggregated_top_collectors atc ON cs.creator_fid = atc.creator_fid
+    ORDER BY cs.casts_collected DESC, cs.total_revenue DESC
+    LIMIT $1`,
+    [limit]
+  );
+  
+  // Extract all FIDs and cast hashes for batch fetching
+  const creatorFids = new Set();
+  const collectorFids = new Set();
+  const castHashes = new Set();
+  
+  result.rows.forEach(row => {
+    creatorFids.add(row.creator_fid);
+    
+    // Extract from recent collected
+    if (row.recent_collected) {
+      const collected = typeof row.recent_collected === 'string' 
+        ? JSON.parse(row.recent_collected) 
+        : row.recent_collected;
+      collected?.forEach(item => {
+        collectorFids.add(item.winner_fid);
+        castHashes.add(item.cast_hash);
+      });
+    }
+    
+    // Extract from top collectors
+    if (row.top_collectors) {
+      const collectors = typeof row.top_collectors === 'string'
+        ? JSON.parse(row.top_collectors)
+        : row.top_collectors;
+      collectors?.forEach(col => {
+        collectorFids.add(col.collector_fid);
+      });
+    }
+  });
+  
+  const allFids = [...new Set([...creatorFids, ...collectorFids])];
+  
+  // Parallel API calls
+  const [users, castContent] = await Promise.all([
+    allFids.length > 0 ? c.get('neynarClient').getUsersByFids(allFids) : {},
+    castHashes.size > 0 ? c.get('neynarClient').getCastsByHashes([...castHashes]) : {}
+  ]);
+  
+  // Format response
+  const creators = result.rows.map(row => {
+    const recentCollected = row.recent_collected 
+      ? (typeof row.recent_collected === 'string' ? JSON.parse(row.recent_collected) : row.recent_collected)
+      : [];
+    
+    const topCollectors = row.top_collectors
+      ? (typeof row.top_collectors === 'string' ? JSON.parse(row.top_collectors) : row.top_collectors)
+      : [];
+    
+    return {
+      creatorFid: row.creator_fid,
+      creatorProfile: users[row.creator_fid] || null,
+      stats: {
+        castsCollected: parseInt(row.casts_collected) || 0,
+        totalRevenueCents: usdcToCents(row.total_revenue),
+        avgPriceCents: usdcToCents(row.avg_price),
+        highestPriceCents: usdcToCents(row.highest_price),
+        lowestPriceCents: usdcToCents(row.lowest_price),
+        uniqueCollectors: parseInt(row.unique_collectors) || 0
+      },
+      recentCollectedCasts: recentCollected.map(item => ({
+        castHash: item.cast_hash,
+        winnerFid: item.winner_fid,
+        winnerProfile: users[item.winner_fid] || null,
+        winningBidCents: usdcToCents(item.winning_bid),
+        endTime: item.end_time,
+        createdAt: item.created_at,
+        castData: castContent[item.cast_hash] || null
+      })),
+      topCollectors: topCollectors.map(col => ({
+        collectorFid: col.collector_fid,
+        collectorProfile: users[col.collector_fid] || null,
+        timesCollected: parseInt(col.times_collected) || 0,
+        revenueFromCollectorCents: usdcToCents(col.revenue_from_collector)
+      }))
+    };
+  });
+  
+  const response = { creators };
+  
+  // Cache the response
+  if (c.env.NEYNAR_CACHE) {
+    await c.env.NEYNAR_CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: CACHE_TTL
+    });
+  }
+  
+  return c.json(response);
+});
+
+// Analytics route - P2P Transfers
+app.get('/analytics/p2p-transfers', async (c) => {
+  const limit = parseInt(c.req.query('limit') || '20');
+  const offset = parseInt(c.req.query('offset') || '0');
+  
+  // Get recent P2P transfers
+  const result = await executeQuery(
+    c.env,
+    `SELECT 
+      t.*,
+      -- Try to get FIDs from known addresses (this would need a mapping table in production)
+      NULL as from_fid,
+      NULL as to_fid
+    FROM transfers t
+    WHERE t.is_p2p = true
+    ORDER BY t.timestamp DESC
+    LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  );
+  
+  // For now, we'll need to resolve addresses to FIDs if we have a mapping
+  // In production, you might want to maintain an address->FID mapping table
+  
+  // Get unique addresses for potential profile enrichment
+  const addresses = new Set();
+  result.rows.forEach(row => {
+    addresses.add(row.from_address.toLowerCase());
+    addresses.add(row.to_address.toLowerCase());
+  });
+  
+  // Note: Neynar doesn't directly support address->profile lookup
+  // You would need to maintain your own mapping or use another service
+  // For now, we'll return the raw data
+  
+  const transfers = result.rows.map(row => ({
+    id: row.id,
+    from_address: row.from_address,
+    from_fid: row.from_fid || null,
+    fromProfile: null, // Would be populated if we had FID mapping
+    to_address: row.to_address,
+    to_fid: row.to_fid || null,
+    toProfile: null, // Would be populated if we had FID mapping
+    token_id: row.token_id,
+    transaction_hash: row.transaction_hash,
+    block_number: row.block_number,
+    timestamp: row.timestamp,
+    explorer_url: `https://basescan.org/tx/${row.transaction_hash}`,
+    opensea_url: `https://opensea.io/assets/base/0xc011ec7ca575d4f0a2eda595107ab104c7af7a09/${row.token_id}`
+  }));
+  
+  // Get total count of P2P transfers
+  const countResult = await executeQuery(
+    c.env,
+    'SELECT COUNT(*) as total FROM transfers WHERE is_p2p = true'
+  );
+  
+  return c.json({
+    transfers,
+    pagination: {
+      total: parseInt(countResult.rows[0].total) || 0,
+      limit,
+      offset,
+      hasMore: offset + limit < parseInt(countResult.rows[0].total)
+    }
+  });
+});
+
 // Analytics route - Hall of Shame user profile (consolidated data for popup)
 app.get('/analytics/hall-of-shame/:fid', async (c) => {
   const fid = parseInt(c.req.param('fid'));

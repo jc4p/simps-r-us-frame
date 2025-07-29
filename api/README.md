@@ -4,7 +4,11 @@ A high-performance Cloudflare Workers API that tracks bidding activity on Farcas
 
 ## Overview
 
-This API monitors the Auction contract at `0xFC52e33F48Dd3fcd5EE428c160722efda645D74A` on Base, tracking all auction starts and bids. It provides comprehensive analytics, leaderboards, and gamification features.
+This API monitors two contracts on Base:
+- **Auction contract** (`0xFC52e33F48Dd3fcd5EE428c160722efda645D74A`) - Tracks auction starts and bids
+- **NFT contract** (`0xc011Ec7Ca575D4f0a2eDA595107aB104c7Af7A09`) - Tracks Transfer events for peer-to-peer trading
+
+It provides comprehensive analytics, leaderboards, gamification features, and P2P trading data.
 
 ### Volume Calculation
 
@@ -52,8 +56,14 @@ psql $DATABASE_URL < schema.sql
 # Apply performance indexes
 psql $DATABASE_URL < indexes.sql
 
+# Apply P2P transfers schema
+psql $DATABASE_URL < transfers_schema.sql
+
 # Run historical data backfill
 bun run backfill
+
+# Run P2P transfers backfill  
+node scripts/backfill-transfers.js
 
 # Start development server
 bun run dev
@@ -256,6 +266,47 @@ Get comprehensive user data for Hall of Shame popup display - combines stats, to
 **Example:**
 ```bash
 curl http://localhost:8787/analytics/hall-of-shame/977233
+```
+
+#### P2P Transfers
+```bash
+GET /analytics/p2p-transfers?limit=20&offset=0
+```
+
+Get recent peer-to-peer NFT transfers (excludes auction settlements and mints).
+
+**Example:**
+```bash
+curl http://localhost:8787/analytics/p2p-transfers
+```
+
+**Response:**
+```json
+{
+  "transfers": [
+    {
+      "id": 123,
+      "from_address": "0x6177801f3b87aE8Ea2f61bD80e7Cff0bdC4f7e71",
+      "from_fid": null,
+      "fromProfile": null,
+      "to_address": "0x8D7f598347e1D526e02E51e663BA837393068e6e",
+      "to_fid": null,
+      "toProfile": null,
+      "token_id": "1355546828722860882707695660281420262485418087070",
+      "transaction_hash": "0x...",
+      "block_number": 12345678,
+      "timestamp": "2024-01-01T00:00:00Z",
+      "explorer_url": "https://basescan.org/tx/0x...",
+      "opensea_url": "https://opensea.io/assets/base/0xc011ec7ca575d4f0a2eda595107ab104c7af7a09/..."
+    }
+  ],
+  "pagination": {
+    "total": 100,
+    "limit": 20,
+    "offset": 0,
+    "hasMore": true
+  }
+}
 ```
 
 ### Protected Endpoints (Requires JWT)

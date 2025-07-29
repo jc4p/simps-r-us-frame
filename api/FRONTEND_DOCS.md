@@ -668,7 +668,241 @@ const data = await response.json();
 - Analytics for creators to benchmark their performance
 - Identifying creators with engaged audiences
 
-### 15. Hall of Shame User Profile (All-in-One Popup Data)
+### 15. P2P Transfers (Secondary Market)
+
+**Endpoint:** `GET /analytics/p2p-transfers`
+
+Get recent peer-to-peer NFT transfers between users (excludes auction settlements and mints).
+
+**Query Parameters:**
+- `limit` (optional): Number of results (default: 20)
+- `offset` (optional): Pagination offset (default: 0)
+
+**Example Request:**
+```javascript
+const response = await fetch('http://localhost:8787/analytics/p2p-transfers?limit=10');
+const data = await response.json();
+```
+
+**Example Response:**
+```json
+{
+  "transfers": [
+    {
+      "id": 123,
+      "from_address": "0x6177801f3b87aE8Ea2f61bD80e7Cff0bdC4f7e71",
+      "from_fid": null,              // Would be populated if address mapping exists
+      "fromProfile": null,            // Would include Neynar profile if FID known
+      "to_address": "0x8D7f598347e1D526e02E51e663BA837393068e6e",
+      "to_fid": null,                
+      "toProfile": null,              
+      "token_id": "1355546828722860882707695660281420262485418087070",
+      "transaction_hash": "0xabc123...",
+      "block_number": 12345678,
+      "timestamp": "2024-01-20T15:45:00Z",
+      "explorer_url": "https://basescan.org/tx/0xabc123...",
+      "opensea_url": "https://opensea.io/assets/base/0xc011ec7ca575d4f0a2eda595107ab104c7af7a09/1355546..."
+    }
+    // ... more transfers
+  ],
+  "pagination": {
+    "total": 156,
+    "limit": 20,
+    "offset": 0,
+    "hasMore": true
+  }
+}
+```
+
+**Use Cases:**
+- Track secondary market activity
+- See who's trading NFTs peer-to-peer
+- Monitor transfer patterns outside of auctions
+- Build transfer history timelines
+
+**Note:** Address to FID mapping would need to be implemented for full profile enrichment.
+
+### 16. Top Winning Casts (Highest Winning Bids)
+
+**Endpoint:** `GET /analytics/top-winning-casts`
+
+Get settled auctions ordered by highest winning bid amounts. Shows the most valuable casts that have been collected.
+
+**Query Parameters:**
+- `limit` (optional): Number of results (default: 20)
+- `offset` (optional): Pagination offset (default: 0)
+
+**Example Request:**
+```javascript
+const response = await fetch('http://localhost:8787/analytics/top-winning-casts?limit=10');
+const data = await response.json();
+```
+
+**Example Response:**
+```json
+{
+  "casts": [
+    {
+      "id": 456,
+      "castHash": "0xabc123...",
+      "creatorAddress": "0x123...",
+      "creatorFid": 12345,
+      "creatorProfile": { /* Neynar user profile */ },
+      "winnerAddress": "0x456...",
+      "winnerFid": 67890,
+      "winnerProfile": { /* Neynar user profile */ },
+      "winningBidCents": 500000,  // $5000.00
+      "minBidCents": 100,
+      "totalBids": 45,
+      "uniqueBidders": 23,
+      "endTime": "2024-01-20T15:00:00Z",
+      "createdAt": "2024-01-18T10:00:00Z",
+      "transactionHash": "0xdef456...",
+      "castData": { /* Neynar cast content */ }
+    }
+    // ... more casts
+  ],
+  "pagination": {
+    "total": 250,
+    "limit": 20,
+    "offset": 0,
+    "hasMore": true
+  }
+}
+```
+
+**Use Cases:**
+- Display most valuable NFT casts
+- Track record-breaking sales
+- Showcase premium content
+- Analyze high-value auction patterns
+
+### 17. Top Collectors (Most Active Collectors)
+
+**Endpoint:** `GET /analytics/top-collectors`
+
+Get users who have collected the most casts, with detailed stats and recent collection history.
+
+**Query Parameters:**
+- `limit` (optional): Number of results (default: 20)
+
+**Example Request:**
+```javascript
+const response = await fetch('http://localhost:8787/analytics/top-collectors?limit=10');
+const data = await response.json();
+```
+
+**Example Response:**
+```json
+{
+  "collectors": [
+    {
+      "collectorFid": 12345,
+      "collectorProfile": { /* Neynar user profile */ },
+      "stats": {
+        "castsCollected": 156,
+        "totalSpentCents": 2500000,  // $25,000.00
+        "avgPriceCents": 16025,      // $160.25
+        "highestPriceCents": 500000,  // $5,000.00
+        "lowestPriceCents": 100       // $1.00
+      },
+      "recentCollections": [
+        {
+          "castHash": "0xabc123...",
+          "creatorFid": 67890,
+          "creatorProfile": { /* Neynar user profile */ },
+          "winningBidCents": 50000,
+          "endTime": "2024-01-20T15:00:00Z",
+          "createdAt": "2024-01-18T10:00:00Z",
+          "castData": { /* Neynar cast content */ }
+        }
+        // ... up to 5 recent collections
+      ],
+      "topCreatorsCollected": [
+        {
+          "creatorFid": 67890,
+          "creatorProfile": { /* Neynar user profile */ },
+          "castsFromCreator": 23,
+          "spentOnCreatorCents": 345000  // $3,450.00
+        }
+        // ... top 3 creators they collect from
+      ]
+    }
+    // ... more collectors
+  ]
+}
+```
+
+**Use Cases:**
+- Identify top collectors/patrons
+- Analyze collector preferences
+- Track collector spending patterns
+- Build collector leaderboards
+
+### 18. Top Collected Creators (Most Collected Casters)
+
+**Endpoint:** `GET /analytics/top-collected-creators`
+
+Get creators whose casts have been collected the most, with revenue stats and top collectors.
+
+**Query Parameters:**
+- `limit` (optional): Number of results (default: 20)
+
+**Example Request:**
+```javascript
+const response = await fetch('http://localhost:8787/analytics/top-collected-creators?limit=10');
+const data = await response.json();
+```
+
+**Example Response:**
+```json
+{
+  "creators": [
+    {
+      "creatorFid": 67890,
+      "creatorProfile": { /* Neynar user profile */ },
+      "stats": {
+        "castsCollected": 89,
+        "totalRevenueCents": 1250000,  // $12,500.00
+        "avgPriceCents": 14044,        // $140.44
+        "highestPriceCents": 500000,    // $5,000.00
+        "lowestPriceCents": 100,        // $1.00
+        "uniqueCollectors": 45
+      },
+      "recentCollectedCasts": [
+        {
+          "castHash": "0xabc123...",
+          "winnerFid": 12345,
+          "winnerProfile": { /* Neynar user profile */ },
+          "winningBidCents": 50000,
+          "endTime": "2024-01-20T15:00:00Z",
+          "createdAt": "2024-01-18T10:00:00Z",
+          "castData": { /* Neynar cast content */ }
+        }
+        // ... up to 5 recent collected casts
+      ],
+      "topCollectors": [
+        {
+          "collectorFid": 12345,
+          "collectorProfile": { /* Neynar user profile */ },
+          "timesCollected": 12,
+          "revenueFromCollectorCents": 234000  // $2,340.00
+        }
+        // ... top 3 collectors
+      ]
+    }
+    // ... more creators
+  ]
+}
+```
+
+**Use Cases:**
+- Identify successful content creators
+- Track creator revenue and performance
+- Analyze collector-creator relationships
+- Build creator leaderboards
+
+### 19. Hall of Shame User Profile (All-in-One Popup Data)
 
 **Endpoint:** `GET /analytics/hall-of-shame/:fid`
 

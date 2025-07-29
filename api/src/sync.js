@@ -1,10 +1,25 @@
-import { createViemClient, getContractEvents, parseAuctionStartedEvent, parseBidPlacedEvent, getAuctionData } from './contract.js';
-import { executeQuery, getLastSyncedBlock, updateLastSyncedBlock } from './db.js';
+import { createViemClient, getContractEvents, parseAuctionStartedEvent, parseBidPlacedEvent, getAuctionData, getNFTTransferEvents, parseTransferEvent } from './contract.js';
+import { executeQuery, getLastSyncedBlock, updateLastSyncedBlock, getLastNFTSyncedBlock, updateLastNFTSyncedBlock } from './db.js';
 import { formatCastHash } from './utils.js';
 
 export async function syncEvents(env) {
   const client = createViemClient(env.BASE_RPC_URL);
   
+  // Sync both contracts in parallel
+  const [auctionResult, transferResult] = await Promise.all([
+    syncAuctionEvents(env, client),
+    syncNFTEvents(env, client)
+  ]);
+  
+  return {
+    eventsProcessed: auctionResult.eventsProcessed + transferResult.eventsProcessed,
+    auctionEventsProcessed: auctionResult.eventsProcessed,
+    transferEventsProcessed: transferResult.eventsProcessed,
+    lastBlock: auctionResult.lastBlock
+  };
+}
+
+async function syncAuctionEvents(env, client) {
   // Get the last synced block
   const lastSyncedBlock = await getLastSyncedBlock(env);
   console.log(`Last synced block from DB: ${lastSyncedBlock}`);
@@ -26,10 +41,10 @@ export async function syncEvents(env) {
   while (fromBlock <= currentBlock) {
     const toBlock = fromBlock + batchSize - 1n > currentBlock ? currentBlock : fromBlock + batchSize - 1n;
     
-    console.log(`Syncing blocks ${fromBlock} to ${toBlock}`);
+    console.log(`Syncing auction blocks ${fromBlock} to ${toBlock}`);
     
     const events = await getContractEvents(client, fromBlock, toBlock);
-    console.log(`Found ${events.length} events in this batch`);
+    console.log(`Found ${events.length} auction events in this batch`);
     
     for (const event of events) {
       if (event.eventName === 'AuctionStarted') {
@@ -43,6 +58,51 @@ export async function syncEvents(env) {
     
     // Update last synced block after each batch
     await updateLastSyncedBlock(env, toBlock);
+    
+    fromBlock = toBlock + 1n;
+  }
+  
+  return { eventsProcessed, lastBlock: currentBlock };
+}
+
+async function syncNFTEvents(env, client) {
+  // Get the last synced block for NFT contract
+  const lastSyncedBlock = await getLastNFTSyncedBlock(env);
+  console.log(`Last NFT synced block from DB: ${lastSyncedBlock}`);
+
+  return { eventsProcessed: 0, lastBlock: lastSyncedBlock };
+  
+  const currentBlock = await client.getBlockNumber();
+  console.log(`Current blockchain block: ${currentBlock}`);
+  
+  // Don't sync if we're already up to date
+  if (lastSyncedBlock >= currentBlock) {
+    console.log('NFT sync already up to date, no sync needed');
+    return { eventsProcessed: 0, lastBlock: currentBlock };
+  }
+  
+  // Sync in batches to avoid rate limits
+  const batchSize = 500n;
+  let fromBlock = lastSyncedBlock + 1n;
+  let eventsProcessed = 0;
+  
+  while (fromBlock <= currentBlock) {
+    const toBlock = fromBlock + batchSize - 1n > currentBlock ? currentBlock : fromBlock + batchSize - 1n;
+    
+    console.log(`Syncing NFT blocks ${fromBlock} to ${toBlock}`);
+    
+    const events = await getNFTTransferEvents(client, fromBlock, toBlock);
+    console.log(`Found ${events.length} transfer events in this batch`);
+    
+    for (const event of events) {
+      if (event.eventName === 'Transfer') {
+        await processTransferEvent(env, client, event);
+        eventsProcessed++;
+      }
+    }
+    
+    // Update last synced block after each batch
+    await updateLastNFTSyncedBlock(env, toBlock);
     
     fromBlock = toBlock + 1n;
   }
@@ -134,6 +194,92 @@ async function processBidPlacedEvent(env, event) {
       data.blockNumber.toString(),
       data.authorizer,
       timestamp
+    ]
+  );
+}
+
+async function processAuctionSettledEvent(env, event) {
+  const data = parseAuctionSettledEvent(event);
+  
+  // Update the auction state to settled (3) and store winner information
+  await executeQuery(
+    env,
+    `UPDATE auctions 
+     SET state = 3,
+         winner_address = $2,
+         winner_fid = $3,
+         winning_bid = $4
+     WHERE cast_hash = $1`,
+    [
+      formatCastHash(data.castHash),
+      data.winner,
+      data.winnerFid,
+      data.amount
+    ]
+  );
+  
+  console.log(`Auction settled: ${data.castHash} - Winner: ${data.winner} (FID: ${data.winnerFid}) - Amount: ${data.amount}`);
+}
+
+async function processTransferEvent(env, client, event) {
+  const data = parseTransferEvent(event);
+  
+  // Get block timestamp
+  const block = await client.getBlock({ blockNumber: event.blockNumber });
+  const timestamp = new Date(Number(block.timestamp) * 1000);
+  
+  // Only consider transfers as P2P if they meet ALL these criteria:
+  // 1. NOT from the zero address (mints)
+  // 2. NOT to the zero address (burns)
+  // 3. NOT from the auction contract
+  // 4. NOT to the auction contract
+  
+  const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+  const AUCTION_CONTRACT = '0xFC52e33F48Dd3fcd5EE428c160722efda645D74A';
+  
+  let isP2P = true;
+  
+  // Exclude mints (from zero address)
+  if (data.fromAddress.toLowerCase() === ZERO_ADDRESS.toLowerCase()) {
+    isP2P = false;
+  }
+  
+  // Exclude burns (to zero address)
+  if (data.toAddress.toLowerCase() === ZERO_ADDRESS.toLowerCase()) {
+    isP2P = false;
+  }
+  
+  // Exclude transfers from auction contract
+  if (data.fromAddress.toLowerCase() === AUCTION_CONTRACT.toLowerCase()) {
+    isP2P = false;
+  }
+  
+  // Exclude transfers to auction contract
+  if (data.toAddress.toLowerCase() === AUCTION_CONTRACT.toLowerCase()) {
+    isP2P = false;
+  }
+  
+  // Only insert if it's a true P2P transfer
+  if (!isP2P) {
+    return; // Skip non-P2P transfers entirely
+  }
+  
+  // Insert the P2P transfer record
+  await executeQuery(
+    env,
+    `INSERT INTO transfers (
+      from_address, to_address, token_id, 
+      transaction_hash, block_number, timestamp, is_p2p
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    ON CONFLICT (transaction_hash, token_id) DO NOTHING`,
+    [
+      data.fromAddress,
+      data.toAddress,
+      data.tokenId,
+      data.transactionHash,
+      data.blockNumber.toString(),
+      timestamp,
+      true // Always true since we're only inserting P2P transfers
     ]
   );
 }

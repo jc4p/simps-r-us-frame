@@ -21,6 +21,8 @@ function App() {
   const [loading, setLoading] = useState({})
   const [error, setError] = useState(null)
   const [battleError, setBattleError] = useState('')
+  const [hotGossipTab, setHotGossipTab] = useState('money-magnets')
+  const [simpWarsMode, setSimpWarsMode] = useState('collectors')
   
   // Data states
   const [frameContext, setFrameContext] = useState(null)
@@ -33,6 +35,9 @@ function App() {
   const [battleInputs, setBattleInputs] = useState({ fid1: '', fid2: '' })
   const [selectedUser, setSelectedUser] = useState(null)
   const [selectedUserProfile, setSelectedUserProfile] = useState(null)
+  const [topWinningCasts, setTopWinningCasts] = useState([])
+  const [topCollectors, setTopCollectors] = useState([])
+  const [topCollectedCreators, setTopCollectedCreators] = useState([])
 
   // Initialize Farcaster SDK
   useEffect(() => {
@@ -65,7 +70,24 @@ function App() {
         loadTopSimps()
         break
       case 'hot-casts':
-        loadHotUsers()
+        // Load based on hot gossip tab
+        switch (hotGossipTab) {
+          case 'money-magnets':
+            loadHotUsers()
+            break
+          case 'record-breakers':
+            loadTopWinningCasts()
+            break
+          case 'most-collected':
+            loadTopCollectedCreators()
+            break
+        }
+        break
+      case 'battles':
+        // Load based on simp wars mode
+        if (simpWarsMode === 'collectors') {
+          loadTopCollectors()
+        }
         break
       case 'trending':
         loadTrending()
@@ -76,7 +98,7 @@ function App() {
         }
         break
     }
-  }, [activeView, selectedTimeframe])
+  }, [activeView, selectedTimeframe, hotGossipTab, simpWarsMode])
 
   // Data loading functions
   const loadGlobalStats = async () => {
@@ -115,6 +137,42 @@ function App() {
       console.error('Failed to load hot users:', err)
     } finally {
       setLoading(prev => ({ ...prev, hotUsers: false }))
+    }
+  }
+
+  const loadTopWinningCasts = async () => {
+    try {
+      setLoading(prev => ({ ...prev, topWinningCasts: true }))
+      const data = await api.getTopWinningCasts(20)
+      setTopWinningCasts(data.casts || [])
+    } catch (err) {
+      console.error('Failed to load top winning casts:', err)
+    } finally {
+      setLoading(prev => ({ ...prev, topWinningCasts: false }))
+    }
+  }
+
+  const loadTopCollectedCreators = async () => {
+    try {
+      setLoading(prev => ({ ...prev, topCollectedCreators: true }))
+      const data = await api.getTopCollectedCreators(20)
+      setTopCollectedCreators(data.creators || [])
+    } catch (err) {
+      console.error('Failed to load top collected creators:', err)
+    } finally {
+      setLoading(prev => ({ ...prev, topCollectedCreators: false }))
+    }
+  }
+
+  const loadTopCollectors = async () => {
+    try {
+      setLoading(prev => ({ ...prev, topCollectors: true }))
+      const data = await api.getTopCollectors(20)
+      setTopCollectors(data.collectors || [])
+    } catch (err) {
+      console.error('Failed to load top collectors:', err)
+    } finally {
+      setLoading(prev => ({ ...prev, topCollectors: false }))
     }
   }
 
@@ -330,55 +388,213 @@ function App() {
   const renderHotCasts = () => (
     <div className="hot-users-view">
       <div className="section-header">
-        <h2 className="tabloid-headline">MONEY MAGNETS!</h2>
-        <p className="scandal-subtitle">The Creators Making BANK From Simps!</p>
+        <h2 className="tabloid-headline">HOT GOSSIP!</h2>
+        <p className="scandal-subtitle">
+          {hotGossipTab === 'money-magnets' && 'The Creators Making BANK From Simps!'}
+          {hotGossipTab === 'record-breakers' && 'The Most Expensive Casts!'}
+          {hotGossipTab === 'most-collected' && 'The Creators with the most sales!'}
+        </p>
       </div>
 
-      {loading.hotUsers ? (
-        <div className="loading">COUNTING THE CASH...</div>
-      ) : (
-        <div className="hot-users-grid">
-          {hotUsers.map((user, index) => {
-            return (
-              <div key={user.creator_fid} className="hot-user-card">
-                <div className="rank-number">#{index + 1}</div>
+      {/* Tab Navigation */}
+      <div className="hot-gossip-tabs">
+        <button 
+          className={`gossip-tab ${hotGossipTab === 'money-magnets' ? 'active' : ''}`}
+          onClick={() => setHotGossipTab('money-magnets')}
+        >
+          💰
+        </button>
+        <button 
+          className={`gossip-tab ${hotGossipTab === 'record-breakers' ? 'active' : ''}`}
+          onClick={() => setHotGossipTab('record-breakers')}
+        >
+          🏆
+        </button>
+        <button 
+          className={`gossip-tab ${hotGossipTab === 'most-collected' ? 'active' : ''}`}
+          onClick={() => setHotGossipTab('most-collected')}
+        >
+          🔥
+        </button>
+      </div>
+
+      {/* Money Magnets View (Current hot users) */}
+      {hotGossipTab === 'money-magnets' && (
+        loading.hotUsers ? (
+          <div className="loading">COUNTING THE CASH...</div>
+        ) : (
+          <div className="hot-users-grid">
+            {hotUsers.map((user, index) => {
+              return (
+                <div key={user.creator_fid} className="hot-user-card">
+                  <div className="rank-number">#{index + 1}</div>
+                  
+                  <div className="user-header">
+                    <img 
+                      src={user.profile?.pfpUrl || '/default-avatar.png'}
+                      alt={user.profile?.username || 'Creator'}
+                      className="creator-avatar"
+                    />
+                    <div className="creator-info">
+                      <h4>{user.profile?.displayName || 'Mystery Creator'}</h4>
+                    </div>
+                  </div>
+
+                  <div className="revenue-stats">
+                    <div className="main-stat">
+                      <span className="stat-label">TOTAL EARNED</span>
+                      <span className="revenue-amount">{formatUSDC(user.stats?.total_revenue_cents || 0)}</span>
+                    </div>
+                    
+                    <div className="stats-grid">
+                      <div className="stat-item">
+                        <span className="stat-value">{user.stats?.total_auctions || 0}</span>
+                        <span className="stat-label">AUCTIONS</span>
+                      </div>
+                      <div className="stat-item">
+                        <span className="stat-value">{user.stats?.unique_simps || 0}</span>
+                        <span className="stat-label">SIMPS</span>
+                      </div>
+                      <div className="stat-item">
+                        <span className="stat-value">{user.stats?.total_bids_received || 0}</span>
+                        <span className="stat-label">TOTAL BIDS</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      )}
+
+      {/* Record Breakers View (Top Winning Casts) */}
+      {hotGossipTab === 'record-breakers' && (
+        loading.topWinningCasts ? (
+          <div className="loading">FINDING RECORD BREAKERS...</div>
+        ) : (
+          <div className="winning-casts-list">
+            {topWinningCasts.map((cast, index) => (
+              <div key={cast.castHash} className="winning-cast-card">
+                <div className="winning-cast-rank">#{index + 1}</div>
                 
-                <div className="user-header">
-                  <img 
-                    src={user.profile?.pfpUrl || '/default-avatar.png'}
-                    alt={user.profile?.username || 'Creator'}
-                    className="creator-avatar"
-                  />
-                  <div className="creator-info">
-                    <h4>{user.profile?.displayName || 'Mystery Creator'}</h4>
+                <div className="winning-amount">
+                  <span className="amount-label">SOLD FOR</span>
+                  <span className="amount-value">{formatUSDC(cast.winningBidCents)}</span>
+                </div>
+
+                <div className="cast-participants">
+                  <div className="creator-section">
+                    <img 
+                      src={cast.creatorProfile?.pfpUrl || '/default-avatar.png'}
+                      alt={cast.creatorProfile?.username || 'Creator'}
+                      className="participant-avatar"
+                    />
+                    <div className="participant-info">
+                      <span className="participant-label">CREATED BY</span>
+                      <span className="participant-name">@{cast.creatorProfile?.username || `fid:${cast.creatorFid}`}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="winner-section">
+                    <img 
+                      src={cast.winnerProfile?.pfpUrl || '/default-avatar.png'}
+                      alt={cast.winnerProfile?.username || 'Winner'}
+                      className="participant-avatar winner"
+                    />
+                    <div className="participant-info">
+                      <span className="participant-label">COLLECTED BY</span>
+                      <span className="participant-name">@{cast.winnerProfile?.username || `fid:${cast.winnerFid}`}</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="revenue-stats">
-                  <div className="main-stat">
-                    <span className="stat-label">TOTAL EARNED</span>
-                    <span className="revenue-amount">{formatUSDC(user.stats?.total_revenue_cents || 0)}</span>
+                <div className="cast-stats">
+                  <span className="stat">{cast.totalBids} bids</span>
+                  <span className="stat-separator">•</span>
+                  <span className="stat">{cast.uniqueBidders} simps</span>
+                  <span className="stat-separator">•</span>
+                  <span className="stat">{formatTimeAgo(new Date(cast.endTime))} ago</span>
+                </div>
+
+                {cast.castData && (
+                  <div className="cast-preview">
+                    <p className="cast-text">{cast.castData.text}</p>
+                    <button 
+                      className="view-cast-btn"
+                      onClick={() => viewCast(cast.castHash)}
+                    >
+                      VIEW CAST →
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* Most Collected View (Top Collected Creators) */}
+      {hotGossipTab === 'most-collected' && (
+        loading.topCollectedCreators ? (
+          <div className="loading">COUNTING PURCHASES...</div>
+        ) : (
+          <div className="collected-creators-grid">
+            {topCollectedCreators.map((creator, index) => (
+              <div key={creator.creatorFid} className="collected-creator-card">
+                <div className="collected-creator-rank">#{index + 1}</div>
+                
+                <div className="creator-header">
+                  <img 
+                    src={creator.creatorProfile?.pfpUrl || '/default-avatar.png'}
+                    alt={creator.creatorProfile?.username || 'Creator'}
+                    className="creator-avatar"
+                  />
+                  <div className="creator-details">
+                    <h4>{creator.creatorProfile?.displayName || 'Mystery Creator'}</h4>
+                    <p>@{creator.creatorProfile?.username || `fid:${creator.creatorFid}`}</p>
+                  </div>
+                </div>
+
+                <div className="collection-stats">
+                  <div className="main-collection-stat">
+                    <span className="stat-number">{creator.stats?.castsCollected || 0}</span>
+                    <span className="stat-label">CASTS SOLD</span>
                   </div>
                   
-                  <div className="stats-grid">
+                  <div className="stats-row">
                     <div className="stat-item">
-                      <span className="stat-value">{user.stats?.total_auctions || 0}</span>
-                      <span className="stat-label">AUCTIONS</span>
+                      <span className="stat-value">{formatUSDC(creator.stats?.totalRevenueCents || 0)}</span>
+                      <span className="stat-label">REVENUE</span>
                     </div>
                     <div className="stat-item">
-                      <span className="stat-value">{user.stats?.unique_simps || 0}</span>
-                      <span className="stat-label">SIMPS</span>
-                    </div>
-                    <div className="stat-item">
-                      <span className="stat-value">{user.stats?.total_bids_received || 0}</span>
-                      <span className="stat-label">TOTAL BIDS</span>
+                      <span className="stat-value">{creator.stats?.uniqueCollectors || 0}</span>
+                      <span className="stat-label">COLLECTORS</span>
                     </div>
                   </div>
                 </div>
+
+                {creator.topCollectors && creator.topCollectors.length > 0 && (
+                  <div className="top-collectors-preview">
+                    <h5>TOP COLLECTORS</h5>
+                    <div className="collectors-row">
+                      {creator.topCollectors.slice(0, 3).map((collector) => (
+                        <div key={collector.collectorFid} className="collector-mini">
+                          <img 
+                            src={collector.collectorProfile?.pfpUrl || '/default-avatar.png'}
+                            alt={collector.collectorProfile?.username || 'Collector'}
+                            className="collector-avatar-tiny"
+                            title={`@${collector.collectorProfile?.username} - ${collector.timesCollected} casts`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )
-          })}
-        </div>
+            ))}
+          </div>
+        )
       )}
     </div>
   )
@@ -386,126 +602,240 @@ function App() {
   const renderBattles = () => (
     <div className="battles-view">
       <div className="section-header">
-        <h2 className="tabloid-headline">SIMP SHOWDOWN!</h2>
-        <p className="scandal-subtitle">Who's the BIGGER Simp?!</p>
+        <h2 className="tabloid-headline">SIMP WARS!</h2>
+        <p className="scandal-subtitle">
+          {simpWarsMode === 'collectors' ? 'Who can\'t stop collecting?' : 'Who\'s the BIGGER Simp?!'}
+        </p>
       </div>
 
-      <div className="battle-inputs">
-        <input
-          type="text"
-          placeholder="FID or @username"
-          value={battleInputs.fid1}
-          onChange={(e) => setBattleInputs(prev => ({ ...prev, fid1: e.target.value }))}
-          className="battle-input"
-        />
-        
-        <div className="vs-divider">VS</div>
-        
-        <input
-          type="text"
-          placeholder="FID or @username"
-          value={battleInputs.fid2}
-          onChange={(e) => setBattleInputs(prev => ({ ...prev, fid2: e.target.value }))}
-          className="battle-input"
-        />
-        
-        <button onClick={loadBattle} className="battle-btn" disabled={loading.battle}>
-          {loading.battle ? 'CALCULATING...' : 'FIGHT!'}
+      {/* Mode Toggle */}
+      <div className="simp-wars-toggle">
+        <button 
+          className={`mode-btn ${simpWarsMode === 'collectors' ? 'active' : ''}`}
+          onClick={() => setSimpWarsMode('collectors')}
+        >
+          🏆<br />TOP COLLECTORS
+        </button>
+        <button 
+          className={`mode-btn ${simpWarsMode === 'battle' ? 'active' : ''}`}
+          onClick={() => setSimpWarsMode('battle')}
+        >
+          ⚔️<br />BATTLE MODE
         </button>
       </div>
 
-      {battleError && (
-        <div className="battle-error">
-          {battleError}
-        </div>
-      )}
+      {/* Top Collectors View */}
+      {simpWarsMode === 'collectors' && (
+        loading.topCollectors ? (
+          <div className="loading">FINDING THE BIGGEST COLLECTORS...</div>
+        ) : (
+          <div className="collectors-list">
+            {topCollectors.map((collector, index) => (
+              <div key={collector.collectorFid} className="collector-card" onClick={() => viewProfile(collector.collectorFid)}>
+                <div className="top-collector-rank">#{index + 1}</div>
+                
+                <div className="collector-header">
+                  <img 
+                    src={collector.collectorProfile?.pfpUrl || '/default-avatar.png'}
+                    alt={collector.collectorProfile?.username || 'Collector'}
+                    className="collector-avatar"
+                  />
+                  <div className="collector-info">
+                    <h3>{collector.collectorProfile?.displayName || 'Mystery Collector'}</h3>
+                    <p>@{collector.collectorProfile?.username || `fid:${collector.collectorFid}`}</p>
+                  </div>
+                </div>
 
-      {battleData && (
-        <div className="battle-results">
-          <div className="battle-headline">THE VERDICT IS IN!</div>
-          
-          <div className="battle-winner-section">
-            <div className="winner-crown">👑</div>
-            <div className="battle-result">
-              {getBattleResult(battleData.user1.stats, battleData.user2.stats)}
-            </div>
-          </div>
-          
-          <div className="fighters-avatars">
-            <img 
-              src={battleData.user1.profile?.pfpUrl || '/default-avatar.png'}
-              alt={battleData.user1.profile?.username || 'Fighter 1'}
-              className={`fighter-avatar-vs ${battleData.winner.fid === battleData.user1.fid ? 'winner' : 'loser'}`}
-            />
-            <div className="vs-separator">VS</div>
-            <img 
-              src={battleData.user2.profile?.pfpUrl || '/default-avatar.png'}
-              alt={battleData.user2.profile?.username || 'Fighter 2'}
-              className={`fighter-avatar-vs ${battleData.winner.fid === battleData.user2.fid ? 'winner' : 'loser'}`}
-            />
-          </div>
-          
-          <div className="fighters-details">
-            <div className={`fighter-details ${battleData.winner.fid === battleData.user1.fid ? 'winner' : 'loser'}`}>
-              <h4>{battleData.user1.profile?.displayName || 'Fighter 1'}</h4>
-              <div className="fighter-stats-block">
-                <span>{battleData.user1.stats.total_bids} bids</span>
-                <span>{formatUSDC(battleData.user1.stats.total_volume_cents)} spent</span>
-              </div>
-            </div>
-            
-            <div className={`fighter-details ${battleData.winner.fid === battleData.user2.fid ? 'winner' : 'loser'}`}>
-              <h4>{battleData.user2.profile?.displayName || 'Fighter 2'}</h4>
-              <div className="fighter-stats-block">
-                <span>{battleData.user2.stats.total_bids} bids</span>
-                <span>{formatUSDC(battleData.user2.stats.total_volume_cents)} spent</span>
-              </div>
-            </div>
-          </div>
+                <div className="collector-stats">
+                  <div className="main-collector-stat">
+                    <span className="stat-number">{collector.stats?.castsCollected || 0}</span>
+                    <span className="stat-label">CASTS COLLECTED</span>
+                  </div>
+                  
+                  <div className="stats-row">
+                    <div className="stat-item">
+                      <span className="stat-value">{formatUSDC(collector.stats?.totalSpentCents || 0)}</span>
+                      <span className="stat-label">TOTAL SPENT</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-value">{formatUSDC(collector.stats?.avgPriceCents || 0)}</span>
+                      <span className="stat-label">AVG PRICE</span>
+                    </div>
+                  </div>
+                </div>
 
-          {battleData.commonAuctions.total > 0 && (
-            <div className="common-auctions">
-              <h4>CAUGHT SIMPING TOGETHER {battleData.commonAuctions.total} TIMES!</h4>
-              
-              {battleData.commonAuctions.auctions && battleData.commonAuctions.auctions.length > 0 && (
-                <div className="common-auctions-list">
-                  {battleData.commonAuctions.auctions.slice(0, 3).map((auction) => (
-                    <div key={auction.cast_hash} className="common-auction-item">
-                      <div className="auction-bids-comparison">
-                        <span className="user1-bid">{battleData.user1.profile?.username}: {formatUSDC(auction.user1_highest_bid_cents)}</span>
-                        <span className="vs-small">vs</span>
-                        <span className="user2-bid">{battleData.user2.profile?.username}: {formatUSDC(auction.user2_highest_bid_cents)}</span>
-                      </div>
-                      
-                      {auction.creatorProfile && (
-                        <div className="auction-creator-info">
+                {collector.topCreatorsCollected && collector.topCreatorsCollected.length > 0 && (
+                  <div className="favorite-creators">
+                    <h4>FAVORITE CREATORS</h4>
+                    <div className="creators-collected-list">
+                      {collector.topCreatorsCollected.slice(0, 3).map((creator) => (
+                        <div key={creator.creatorFid} className="creator-collected">
                           <img 
-                            src={auction.creatorProfile.pfpUrl || '/default-avatar.png'} 
-                            alt={auction.creatorProfile.username}
-                            className="creator-avatar-mini"
+                            src={creator.creatorProfile?.pfpUrl || '/default-avatar.png'}
+                            alt={creator.creatorProfile?.username || 'Creator'}
+                            className="creator-avatar-tiny"
                           />
-                          <span>@{auction.creatorProfile.username}</span>
+                          <span className="creator-name">@{creator.creatorProfile?.username || `fid:${creator.creatorFid}`}</span>
+                          <span className="collection-count">{creator.castsFromCreator} casts</span>
                         </div>
-                      )}
-                      
-                      {auction.castData && (
-                        <div className="auction-cast-preview">
-                          <p className="cast-text-preview">{auction.castData.text}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {collector.recentCollections && collector.recentCollections.length > 0 && (
+                  <div className="recent-collections">
+                    <h4>RECENT WINS</h4>
+                    <div className="recent-wins-list">
+                      {collector.recentCollections.slice(0, 2).map((collection, idx) => (
+                        <div key={`${collection.castHash}-${idx}`} className="recent-win">
+                          <span className="win-amount">{formatUSDC(collection.winningBidCents)}</span>
+                          <span className="win-time">{formatTimeAgo(new Date(collection.endTime))}</span>
                           <button 
                             className="view-cast-btn-mini"
-                            onClick={() => viewCast(auction.castHash || auction.cast_hash)}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              viewCast(collection.castHash)
+                            }}
                           >
                             VIEW →
                           </button>
                         </div>
-                      )}
+                      ))}
                     </div>
-                  ))}
+                  </div>
+                )}
+
+                <button className="view-profile-btn">
+                  VIEW FULL PROFILE →
+                </button>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* Battle Mode View */}
+      {simpWarsMode === 'battle' && (
+        <>
+          <div className="battle-inputs">
+            <input
+              type="text"
+              placeholder="FID or @username"
+              value={battleInputs.fid1}
+              onChange={(e) => setBattleInputs(prev => ({ ...prev, fid1: e.target.value }))}
+              className="battle-input"
+            />
+            
+            <div className="vs-divider">VS</div>
+            
+            <input
+              type="text"
+              placeholder="FID or @username"
+              value={battleInputs.fid2}
+              onChange={(e) => setBattleInputs(prev => ({ ...prev, fid2: e.target.value }))}
+              className="battle-input"
+            />
+            
+            <button onClick={loadBattle} className="battle-btn" disabled={loading.battle}>
+              {loading.battle ? 'CALCULATING...' : 'FIGHT!'}
+            </button>
+          </div>
+
+          {battleError && (
+            <div className="battle-error">
+              {battleError}
+            </div>
+          )}
+
+          {battleData && (
+            <div className="battle-results">
+              <div className="battle-headline">THE VERDICT IS IN!</div>
+              
+              <div className="battle-winner-section">
+                <div className="winner-crown">👑</div>
+                <div className="battle-result">
+                  {getBattleResult(battleData.user1.stats, battleData.user2.stats)}
+                </div>
+              </div>
+              
+              <div className="fighters-avatars">
+                <img 
+                  src={battleData.user1.profile?.pfpUrl || '/default-avatar.png'}
+                  alt={battleData.user1.profile?.username || 'Fighter 1'}
+                  className={`fighter-avatar-vs ${battleData.winner.fid === battleData.user1.fid ? 'winner' : 'loser'}`}
+                />
+                <div className="vs-separator">VS</div>
+                <img 
+                  src={battleData.user2.profile?.pfpUrl || '/default-avatar.png'}
+                  alt={battleData.user2.profile?.username || 'Fighter 2'}
+                  className={`fighter-avatar-vs ${battleData.winner.fid === battleData.user2.fid ? 'winner' : 'loser'}`}
+                />
+              </div>
+              
+              <div className="fighters-details">
+                <div className={`fighter-details ${battleData.winner.fid === battleData.user1.fid ? 'winner' : 'loser'}`}>
+                  <h4>{battleData.user1.profile?.displayName || 'Fighter 1'}</h4>
+                  <div className="fighter-stats-block">
+                    <span>{battleData.user1.stats.total_bids} bids</span>
+                    <span>{formatUSDC(battleData.user1.stats.total_volume_cents)} spent</span>
+                  </div>
+                </div>
+                
+                <div className={`fighter-details ${battleData.winner.fid === battleData.user2.fid ? 'winner' : 'loser'}`}>
+                  <h4>{battleData.user2.profile?.displayName || 'Fighter 2'}</h4>
+                  <div className="fighter-stats-block">
+                    <span>{battleData.user2.stats.total_bids} bids</span>
+                    <span>{formatUSDC(battleData.user2.stats.total_volume_cents)} spent</span>
+                  </div>
+                </div>
+              </div>
+
+              {battleData.commonAuctions.total > 0 && (
+                <div className="common-auctions">
+                  <h4>CAUGHT SIMPING TOGETHER {battleData.commonAuctions.total} TIMES!</h4>
+                  
+                  {battleData.commonAuctions.auctions && battleData.commonAuctions.auctions.length > 0 && (
+                    <div className="common-auctions-list">
+                      {battleData.commonAuctions.auctions.slice(0, 3).map((auction) => (
+                        <div key={auction.cast_hash} className="common-auction-item">
+                          <div className="auction-bids-comparison">
+                            <span className="user1-bid">{battleData.user1.profile?.username}: {formatUSDC(auction.user1_highest_bid_cents)}</span>
+                            <span className="vs-small">vs</span>
+                            <span className="user2-bid">{battleData.user2.profile?.username}: {formatUSDC(auction.user2_highest_bid_cents)}</span>
+                          </div>
+                          
+                          {auction.creatorProfile && (
+                            <div className="auction-creator-info">
+                              <img 
+                                src={auction.creatorProfile.pfpUrl || '/default-avatar.png'} 
+                                alt={auction.creatorProfile.username}
+                                className="creator-avatar-mini"
+                              />
+                              <span>@{auction.creatorProfile.username}</span>
+                            </div>
+                          )}
+                          
+                          {auction.castData && (
+                            <div className="auction-cast-preview">
+                              <p className="cast-text-preview">{auction.castData.text}</p>
+                              <button 
+                                className="view-cast-btn-mini"
+                                onClick={() => viewCast(auction.castHash || auction.cast_hash)}
+                              >
+                                VIEW →
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   )
