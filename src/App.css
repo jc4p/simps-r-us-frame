@@ -2899,3 +2899,134 @@ body {
   background: var(--hot-pink);
   transform: translateY(-2px);
 }
+
+/* Authored Collections */
+.authored-collections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.authored-collection-item {
+  background: var(--white);
+  border: 3px solid var(--black);
+  padding: 1.5rem;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.authored-collection-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 4px 4px 0 var(--hot-pink);
+}
+
+.collection-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.sold-label {
+  font-family: var(--font-subhead);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  color: var(--gray-medium);
+}
+
+.sold-amount {
+  font-family: var(--font-stats);
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: var(--hot-pink);
+}
+
+.sold-time {
+  margin-left: auto;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  color: var(--gray-medium);
+}
+
+.collection-winner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: var(--off-white);
+  border: 2px solid var(--black);
+}
+
+.winner-avatar-small {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid var(--black);
+}
+
+.winner-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.collected-by {
+  font-family: var(--font-subhead);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  color: var(--gray-medium);
+}
+
+.winner-name {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: bold;
+  color: var(--black);
+}
+
+.auction-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  color: var(--gray-dark);
+}
+
+.collection-cast-preview {
+  background: var(--off-white);
+  padding: 1rem;
+  border: 1px solid var(--gray-lighter);
+  margin-top: 1rem;
+}
+
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.load-more-btn {
+  padding: 1rem 2rem;
+  background: var(--black);
+  color: var(--white);
+  border: none;
+  font-family: var(--font-stats);
+  font-size: 1rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.load-more-btn:hover:not(:disabled) {
+  background: var(--hot-pink);
+  transform: translateY(-2px);
+}
+
+.load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

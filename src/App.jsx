@@ -38,6 +38,8 @@ function App() {
   const [topWinningCasts, setTopWinningCasts] = useState([])
   const [topCollectors, setTopCollectors] = useState([])
   const [topCollectedCreators, setTopCollectedCreators] = useState([])
+  const [authoredCollections, setAuthoredCollections] = useState([])
+  const [authoredCollectionsPagination, setAuthoredCollectionsPagination] = useState(null)
 
   // Initialize Farcaster SDK
   useEffect(() => {
@@ -95,6 +97,7 @@ function App() {
       case 'my-level':
         if (frameContext?.user?.fid) {
           loadUserLevel(frameContext.user.fid)
+          loadAuthoredCollections(frameContext.user.fid)
         }
         break
     }
@@ -198,6 +201,23 @@ function App() {
       console.error('Failed to load user level:', err)
     } finally {
       setLoading(prev => ({ ...prev, userLevel: false }))
+    }
+  }
+
+  const loadAuthoredCollections = async (fid, offset = 0) => {
+    try {
+      setLoading(prev => ({ ...prev, authoredCollections: true }))
+      const data = await api.getUserAuthoredCollections(fid, 20, offset)
+      if (offset === 0) {
+        setAuthoredCollections(data.collections || [])
+      } else {
+        setAuthoredCollections(prev => [...prev, ...(data.collections || [])])
+      }
+      setAuthoredCollectionsPagination(data.pagination || null)
+    } catch (err) {
+      console.error('Failed to load authored collections:', err)
+    } finally {
+      setLoading(prev => ({ ...prev, authoredCollections: false }))
     }
   }
 
@@ -1136,6 +1156,76 @@ function App() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Authored Collections Section */}
+          {authoredCollections && authoredCollections.length > 0 && (
+            <div className="profile-section">
+              <h3>CASTS YOU'VE AUTHORED THAT SOLD</h3>
+              <div className="authored-collections-list">
+                {authoredCollections.map((collection, idx) => (
+                  <div key={collection.auctionId} className="authored-collection-item">
+                    <div className="collection-header">
+                      <span className="sold-label">SOLD FOR</span>
+                      <span className="sold-amount">{formatUSDC(collection.winningBidCents)}</span>
+                      <span className="sold-time">{formatTimeAgo(new Date(collection.endTime))}</span>
+                    </div>
+                    
+                    <div className="collection-winner">
+                      <img 
+                        src={collection.winnerProfile?.pfpUrl || '/default-avatar.png'}
+                        alt={collection.winnerProfile?.username || 'Winner'}
+                        className="winner-avatar-small"
+                      />
+                      <div className="winner-info">
+                        <span className="collected-by">COLLECTED BY</span>
+                        <span className="winner-name">@{collection.winnerProfile?.username || `fid:${collection.winnerFid}`}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="auction-stats-row">
+                      <span className="stat">{collection.totalBids} bids</span>
+                      <span className="stat-separator">•</span>
+                      <span className="stat">{collection.uniqueBidders} bidders</span>
+                      <span className="stat-separator">•</span>
+                      <span className="stat">Min bid: {formatUSDC(collection.minBidCents)}</span>
+                    </div>
+                    
+                    {collection.castData && (
+                      <div className="collection-cast-preview">
+                        <p className="cast-text-preview">{collection.castData.text}</p>
+                        {collection.castData.firstEmbed?.type === 'image' && (
+                          <img 
+                            src={collection.castData.firstEmbed.url} 
+                            alt="Cast embed" 
+                            className="cast-embed-preview"
+                          />
+                        )}
+                        <button 
+                          className="view-cast-btn-mini"
+                          onClick={() => viewCast(collection.castHash)}
+                        >
+                          VIEW CAST →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              
+              {/* Load More Button */}
+              {authoredCollectionsPagination?.hasMore && (
+                <div className="load-more-container">
+                  <button 
+                    className="load-more-btn"
+                    onClick={() => loadAuthoredCollections(frameContext.user.fid, authoredCollections.length)}
+                    disabled={loading.authoredCollections}
+                  >
+                    {loading.authoredCollections ? 'LOADING...' : 'LOAD MORE'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

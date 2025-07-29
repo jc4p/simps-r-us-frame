@@ -2501,6 +2501,143 @@ app.get('/analytics/hall-of-shame/:fid', async (c) => {
   return c.json(response);
 });
 
+// Analytics route - User Authored Collections (casts created by user that have been collected)
+app.get('/analytics/user-authored-collections/:fid', async (c) => {
+  const fid = parseInt(c.req.param('fid'));
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 50);
+  const offset = parseInt(c.req.query('offset') || '0');
+  
+  // KV cache with 4-minute TTL
+  const CACHE_TTL = 240; // 4 minutes  
+  const cacheKey = `authored-collections:${fid}:${limit}:${offset}:${Math.floor(Date.now() / 240000)}`;
+  
+  // Try to get from cache first
+  const cached = await c.env.NEYNAR_CACHE?.get(cacheKey);
+  if (cached) {
+    return c.json(JSON.parse(cached));
+  }
+  
+  // Get user profile first to check if user exists
+  const userProfile = await c.get('neynarClient').getUser(fid);
+  
+  if (!userProfile) {
+    return c.json({ error: 'User not found' }, 404);
+  }
+  
+  // Query to get auctions created by this user that have been collected
+  const result = await executeQuery(
+    c.env,
+    `WITH authored_collections AS (
+      SELECT 
+        a.id as auction_id,
+        a.cast_hash,
+        a.creator_fid,
+        a.winner_fid,
+        a.winning_bid,
+        a.end_time,
+        a.state,
+        a.min_bid,
+        -- Get total bids count
+        (SELECT COUNT(*) FROM bids WHERE auction_id = a.id) as total_bids,
+        -- Get unique bidders count
+        (SELECT COUNT(DISTINCT bidder_fid) FROM bids WHERE auction_id = a.id) as unique_bidders,
+        -- Get auction start time (first bid or auction creation)
+        COALESCE(
+          (SELECT MIN(timestamp) FROM bids WHERE auction_id = a.id),
+          a.created_at
+        ) as start_time
+      FROM auctions a
+      WHERE a.creator_fid = $1 
+        AND a.state = 3 
+        AND a.winner_fid IS NOT NULL
+      ORDER BY a.end_time DESC
+      LIMIT $2 OFFSET $3
+    )
+    SELECT 
+      auction_id,
+      cast_hash,
+      creator_fid,
+      winner_fid,
+      winning_bid,
+      end_time,
+      state,
+      min_bid,
+      total_bids,
+      unique_bidders,
+      start_time
+    FROM authored_collections`,
+    [fid, limit, offset]
+  );
+  
+  // Get total count for pagination
+  const countResult = await executeQuery(
+    c.env,
+    `SELECT COUNT(*) as total 
+     FROM auctions 
+     WHERE creator_fid = $1 
+       AND state = 3 
+       AND winner_fid IS NOT NULL`,
+    [fid]
+  );
+  
+  const totalCount = parseInt(countResult.rows[0]?.total || 0);
+  
+  // Extract winner FIDs and cast hashes for batch fetching
+  const winnerFids = new Set();
+  const castHashes = new Set();
+  
+  result.rows.forEach(row => {
+    if (row.winner_fid) winnerFids.add(row.winner_fid);
+    if (row.cast_hash) castHashes.add(row.cast_hash);
+  });
+  
+  // Parallel API calls for winner profiles and cast data
+  const [winnerProfiles, castData] = await Promise.all([
+    winnerFids.size > 0 ? c.get('neynarClient').getUsersByFids([...winnerFids]) : {},
+    castHashes.size > 0 ? c.get('neynarClient').getCastsByHashes([...castHashes]) : {}
+  ]);
+  
+  // Format the collections
+  const collections = result.rows.map(row => ({
+    auctionId: row.auction_id,
+    castHash: row.cast_hash,
+    creatorFid: row.creator_fid,
+    winnerFid: row.winner_fid,
+    winnerProfile: winnerProfiles[row.winner_fid] || null,
+    winningBidCents: usdcToCents(row.winning_bid),
+    endTime: row.end_time,
+    startTime: row.start_time,
+    state: row.state,
+    minBidCents: usdcToCents(row.min_bid),
+    totalBids: parseInt(row.total_bids) || 0,
+    uniqueBidders: parseInt(row.unique_bidders) || 0,
+    castData: castData[row.cast_hash] || null
+  }));
+  
+  const response = {
+    user: {
+      fid,
+      profile: userProfile
+    },
+    collections,
+    pagination: {
+      total: totalCount,
+      limit,
+      offset,
+      hasMore: offset + limit < totalCount
+    }
+  };
+  
+  // Cache the response
+  if (c.env.NEYNAR_CACHE) {
+    await c.env.NEYNAR_CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: CACHE_TTL
+    });
+  }
+  
+  return c.json(response);
+});
+
 // Export for Cloudflare Workers
 export default {
   async fetch(request, env, ctx) {

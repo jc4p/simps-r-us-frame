@@ -81,4 +81,8 @@ export const api = {
   // Get top collected creators (most collected casters)
   getTopCollectedCreators: (limit = 30) => 
     fetchAPI(`/analytics/top-collected-creators?limit=${limit}`),
+  
+  // Get user's authored casts that have been collected
+  getUserAuthoredCollections: (fid, limit = 20, offset = 0) => 
+    fetchAPI(`/analytics/user-authored-collections/${fid}?limit=${limit}&offset=${offset}`),
 };
