@@ -1707,24 +1707,26 @@ app.get('/analytics/top-winning-casts', async (c) => {
     castHashes.length > 0 ? c.get('neynarClient').getCastsByHashes(castHashes) : {}
   ]);
   
-  const casts = result.rows.map(row => ({
-    id: row.id,
-    castHash: row.cast_hash,
-    creatorAddress: row.creator_address,
-    creatorFid: row.creator_fid,
-    creatorProfile: users[row.creator_fid] || null,
-    winnerAddress: row.winner_address,
-    winnerFid: row.winner_fid,
-    winnerProfile: users[row.winner_fid] || null,
-    winningBidCents: usdcToCents(row.winning_bid),
-    minBidCents: usdcToCents(row.min_bid),
-    totalBids: parseInt(row.total_bids) || 0,
-    uniqueBidders: parseInt(row.unique_bidders) || 0,
-    endTime: row.end_time,
-    createdAt: row.created_at,
-    transactionHash: row.transaction_hash,
-    castData: castContent[row.cast_hash] || null
-  }));
+  const casts = result.rows
+    .map(row => ({
+      id: row.id,
+      castHash: row.cast_hash,
+      creatorAddress: row.creator_address,
+      creatorFid: row.creator_fid,
+      creatorProfile: users[row.creator_fid] || null,
+      winnerAddress: row.winner_address,
+      winnerFid: row.winner_fid,
+      winnerProfile: users[row.winner_fid] || null,
+      winningBidCents: usdcToCents(row.winning_bid),
+      minBidCents: usdcToCents(row.min_bid),
+      totalBids: parseInt(row.total_bids) || 0,
+      uniqueBidders: parseInt(row.unique_bidders) || 0,
+      endTime: row.end_time,
+      createdAt: row.created_at,
+      transactionHash: row.transaction_hash,
+      castData: castContent[row.cast_hash] || null
+    }))
+    .filter(cast => cast.castData !== null);
   
   // Get total count
   const countResult = await executeQuery(
@@ -2002,7 +2004,7 @@ app.get('/analytics/top-collected-creators', async (c) => {
             'times_collected', times_collected,
             'revenue_from_collector', revenue_from_collector
           ) ORDER BY rn
-        ) FILTER (WHERE rn <= 3) as top_collectors
+        ) FILTER (WHERE rn <= 5) as top_collectors
       FROM top_collectors_per_creator
       GROUP BY creator_fid
     )
